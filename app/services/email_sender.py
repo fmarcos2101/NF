@@ -4,6 +4,7 @@ from email.message import EmailMessage
 from pathlib import Path
 
 from ..models import Nota
+from .formatos import moeda
 
 
 def smtp_configurado(config: dict[str, str]) -> bool:
@@ -26,7 +27,7 @@ def enviar_nota_por_email(nota: Nota, config: dict[str, str]) -> None:
     msg.set_content(
         f"Olá, {nota.cliente.nome}!\n\n"
         f"Sua nota fiscal nº {nota.numero:09d} (série {nota.serie}) foi emitida.\n"
-        f"Valor total: R$ {nota.total:,.2f}\n"
+        f"Valor total: {moeda(nota.total)}\n"
         f"Chave de acesso: {nota.chave_acesso}\n\n"
         f"O DANFE (PDF) e o XML estão em anexo.\n\n"
         f"Atenciosamente,\n{empresa}"

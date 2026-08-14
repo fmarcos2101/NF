@@ -8,6 +8,7 @@ automático sem mudar o resto do sistema.
 from urllib.parse import quote
 
 from ..models import Nota
+from .formatos import moeda
 
 
 def montar_link(nota: Nota, config: dict[str, str]) -> dict[str, str]:
@@ -21,7 +22,7 @@ def montar_link(nota: Nota, config: dict[str, str]) -> dict[str, str]:
         f"Olá, {cliente.nome if cliente else ''}! "
         f"Sua nota fiscal nº {nota.numero:09d} foi emitida"
         + (f" por {empresa}" if empresa else "")
-        + f".\nValor total: R$ {nota.total:,.2f}"
+        + f".\nValor total: {moeda(nota.total)}"
         + (f"\nChave de acesso: {nota.chave_acesso}" if nota.chave_acesso else "")
         + "\nO PDF da nota segue em anexo."
     )

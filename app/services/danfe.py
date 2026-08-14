@@ -3,6 +3,7 @@ from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 
 from ..models import Nota
+from .formatos import moeda
 
 LARGURA = 190  # área útil em mm (A4 com margens de 10)
 
@@ -104,8 +105,8 @@ def gerar_danfe(nota: Nota, emitente: dict[str, str], caminho: str) -> None:
         pdf.cell(12, 6, item.cfop, border=1, align="C")
         pdf.cell(10, 6, item.unidade, border=1, align="C")
         pdf.cell(18, 6, f"{item.quantidade:g}", border=1, align="R")
-        pdf.cell(28, 6, f"R$ {item.preco_unitario:,.2f}", border=1, align="R")
-        pdf.cell(30, 6, f"R$ {item.total:,.2f}", border=1, align="R")
+        pdf.cell(28, 6, moeda(item.preco_unitario), border=1, align="R")
+        pdf.cell(30, 6, moeda(item.total), border=1, align="R")
         pdf.ln()
 
     # Totais
@@ -113,10 +114,10 @@ def gerar_danfe(nota: Nota, emitente: dict[str, str], caminho: str) -> None:
     pdf.set_font("helvetica", "", 9)
     if nota.desconto:
         pdf.cell(160, 6, "Desconto:", align="R")
-        pdf.cell(30, 6, f"R$ {nota.desconto:,.2f}", align="R", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.cell(30, 6, moeda(nota.desconto), align="R", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.set_font("helvetica", "B", 11)
     pdf.cell(160, 8, "VALOR TOTAL DA NOTA:", align="R")
-    pdf.cell(30, 8, f"R$ {nota.total:,.2f}", align="R", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.cell(30, 8, moeda(nota.total), align="R", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
     # Observações
     if nota.observacoes:
