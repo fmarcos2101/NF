@@ -7,7 +7,7 @@ e consulta o resultado. Requer um token de API (Configurações).
 import httpx
 
 from ...models import Nota
-from .base import EmissorBase, ErroComunicacao, ResultadoEmissao
+from .base import EmissorBase, ErroComunicacao, ResultadoEmissao, ResultadoEvento
 
 URLS = {
     "producao": "https://api.focusnfe.com.br",
@@ -121,4 +121,93 @@ class EmissorFocusNFe(EmissorBase):
         return ResultadoEmissao(
             autorizada=False,
             motivo=dados.get("mensagem_sefaz") or dados.get("mensagem") or f"Status: {status}",
+        )
+
+    def _referencia(self, nota: Nota) -> str:
+        return f"nota-{nota.id}"
+
+    def cancelar(self, nota: Nota, justificativa: str) -> ResultadoEvento:
+        if not self.token:
+            return ResultadoEvento(
+                autorizado=False,
+                motivo="Token da Focus NFe não configurado (Configurações).",
+            )
+        try:
+            resposta = httpx.delete(
+                f"{self.base_url}/v2/nfe/{self._referencia(nota)}",
+                json={"justificativa": justificativa},
+                auth=(self.token, ""),
+                timeout=30,
+            )
+        except httpx.HTTPError as exc:
+            raise ErroComunicacao(str(exc)) from exc
+        if resposta.status_code >= 500:
+            raise ErroComunicacao(f"Focus NFe indisponível ({resposta.status_code})")
+        dados = resposta.json() if resposta.content else {}
+        status = dados.get("status", "")
+        if status == "cancelado" or resposta.status_code in (200, 202):
+            xml = ""
+            caminho_xml = dados.get("caminho_xml_cancelamento", "")
+            if caminho_xml:
+                try:
+                    xml = httpx.get(
+                        f"{self.base_url}{caminho_xml}",
+                        auth=(self.token, ""),
+                        timeout=30,
+                    ).text
+                except httpx.HTTPError:
+                    pass
+            if status in ("cancelado", "") and resposta.status_code < 400:
+                return ResultadoEvento(
+                    autorizado=True,
+                    protocolo=str(dados.get("numero_protocolo", "")),
+                    xml=xml,
+                )
+        if status in ("processando_cancelamento", "processando_autorizacao"):
+            raise ErroComunicacao("Cancelamento ainda em processamento; nova tentativa em instantes.")
+        return ResultadoEvento(
+            autorizado=False,
+            motivo=dados.get("mensagem_sefaz") or dados.get("mensagem") or f"Status: {status or resposta.status_code}",
+        )
+
+    def carta_correcao(self, nota: Nota, texto: str) -> ResultadoEvento:
+        if not self.token:
+            return ResultadoEvento(
+                autorizado=False,
+                motivo="Token da Focus NFe não configurado (Configurações).",
+            )
+        try:
+            resposta = httpx.post(
+                f"{self.base_url}/v2/nfe/{self._referencia(nota)}/carta_correcao",
+                json={"correcao": texto},
+                auth=(self.token, ""),
+                timeout=30,
+            )
+        except httpx.HTTPError as exc:
+            raise ErroComunicacao(str(exc)) from exc
+        if resposta.status_code >= 500:
+            raise ErroComunicacao(f"Focus NFe indisponível ({resposta.status_code})")
+        dados = resposta.json() if resposta.content else {}
+        status = dados.get("status", "")
+        if resposta.status_code < 400 and status not in ("erro_autorizacao", "erro"):
+            xml = ""
+            caminho_xml = dados.get("caminho_xml_carta_correcao", "")
+            if caminho_xml:
+                try:
+                    xml = httpx.get(
+                        f"{self.base_url}{caminho_xml}",
+                        auth=(self.token, ""),
+                        timeout=30,
+                    ).text
+                except httpx.HTTPError:
+                    pass
+            return ResultadoEvento(
+                autorizado=True,
+                protocolo=str(dados.get("numero_protocolo", "")),
+                sequencia=int(dados.get("numero_carta_correcao") or dados.get("numero") or 0),
+                xml=xml,
+            )
+        return ResultadoEvento(
+            autorizado=False,
+            motivo=dados.get("mensagem_sefaz") or dados.get("mensagem") or f"Status: {status or resposta.status_code}",
         )

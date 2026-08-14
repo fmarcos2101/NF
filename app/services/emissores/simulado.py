@@ -9,7 +9,7 @@ from datetime import datetime
 from xml.sax.saxutils import escape
 
 from ...models import Nota
-from .base import EmissorBase, ResultadoEmissao
+from .base import EmissorBase, ResultadoEmissao, ResultadoEvento
 
 UF_CODIGOS = {
     "AC": "12", "AL": "27", "AM": "13", "AP": "16", "BA": "29", "CE": "23",
@@ -95,4 +95,39 @@ class EmissorSimulado(EmissorBase):
             chave_acesso=chave,
             protocolo=f"SIM{datetime.now():%Y%m%d%H%M%S}",
             xml=_montar_xml(nota, emitente, chave),
+        )
+
+    def cancelar(self, nota: Nota, justificativa: str) -> ResultadoEvento:
+        if not nota.chave_acesso:
+            return ResultadoEvento(autorizado=False, motivo="Nota sem chave de acesso.")
+        return ResultadoEvento(
+            autorizado=True,
+            protocolo=f"CANC{datetime.now():%Y%m%d%H%M%S}",
+            xml=(
+                f'<?xml version="1.0" encoding="UTF-8"?>\n'
+                f"<!-- CANCELAMENTO SIMULADO - SEM VALIDADE FISCAL -->\n"
+                f"<procEventoNFe>\n"
+                f"  <chNFe>{nota.chave_acesso}</chNFe>\n"
+                f"  <descEvento>Cancelamento</descEvento>\n"
+                f"  <xJust>{escape(justificativa)}</xJust>\n"
+                f"</procEventoNFe>\n"
+            ),
+        )
+
+    def carta_correcao(self, nota: Nota, texto: str) -> ResultadoEvento:
+        if not nota.chave_acesso:
+            return ResultadoEvento(autorizado=False, motivo="Nota sem chave de acesso.")
+        return ResultadoEvento(
+            autorizado=True,
+            protocolo=f"CCE{datetime.now():%Y%m%d%H%M%S}",
+            sequencia=1,
+            xml=(
+                f'<?xml version="1.0" encoding="UTF-8"?>\n'
+                f"<!-- CARTA DE CORREÇÃO SIMULADA - SEM VALIDADE FISCAL -->\n"
+                f"<procEventoNFe>\n"
+                f"  <chNFe>{nota.chave_acesso}</chNFe>\n"
+                f"  <descEvento>Carta de Correcao</descEvento>\n"
+                f"  <xCorrecao>{escape(texto)}</xCorrecao>\n"
+                f"</procEventoNFe>\n"
+            ),
         )

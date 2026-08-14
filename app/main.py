@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from . import models  # noqa: F401 — registra os modelos no metadata
-from .database import Base, engine
+from .database import garantir_schema
 from .routers import clientes, configuracoes, notas, produtos
 from .services.fila import worker_fila
 
@@ -25,7 +25,7 @@ BASE_DIR = Path(__file__).resolve().parent
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
+    garantir_schema()
     tarefa = asyncio.create_task(worker_fila())
     yield
     tarefa.cancel()
@@ -58,3 +58,10 @@ for rota, (template, titulo) in PAGINAS.items():
         return pagina
 
     app.get(rota, response_class=HTMLResponse, include_in_schema=False)(_criar_handler())
+
+
+@app.get("/notas/{nota_id}", response_class=HTMLResponse, include_in_schema=False)
+async def pagina_nota(request: Request, nota_id: int) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request, "nota.html", {"titulo": f"Nota {nota_id}", "nota_id": nota_id}
+    )

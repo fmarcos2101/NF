@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+
+{% block acoes %}
+<a class="btn secundario" href="/notas">← Voltar</a>
+{% endblock %}
+
+{% block conteudo %}
+<div id="aviso" class="aviso" style="display:none"></div>
+<div id="conteudo-nota">Carregando...</div>
+
+<dialog id="modal-evento">
+  <form id="form-evento" method="dialog">
+    <div class="modal-cabecalho">
+      <h3 id="evento-titulo">Evento</h3>
+      <button type="button" class="fechar-modal" onclick="modalEvento.close()">×</button>
+    </div>
+    <div class="modal-corpo">
+      <p class="texto-muted" id="evento-ajuda"></p>
+      <label id="evento-label">Texto</label>
+      <textarea id="evento-texto" rows="5" required minlength="15" maxlength="1000"></textarea>
+      <div class="texto-muted" style="margin-top:6px">Mínimo 15 caracteres (exigência da SEFAZ).</div>
+    </div>
+    <div class="modal-rodape">
+      <button type="button" class="btn secundario" onclick="modalEvento.close()">Cancelar</button>
+      <button type="submit" class="btn" id="evento-enviar">Enviar</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="modal-whats">
+  <div class="modal-cabecalho">
+    <h3>Enviar por WhatsApp</h3>
+    <button type="button" class="fechar-modal" onclick="modalWhats.close()">×</button>
+  </div>
+  <div class="modal-corpo">
+    <textarea id="whats-mensagem" rows="6" readonly></textarea>
+  </div>
+  <div class="modal-rodape">
+    <button class="btn secundario" onclick="navigator.clipboard.writeText(document.getElementById('whats-mensagem').value); toast('Mensagem copiada.', 'ok')">Copiar</button>
+    <a class="btn" id="whats-abrir" href="#" target="_blank" rel="noopener">Abrir WhatsApp</a>
+  </div>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const NOTA_ID = {{ nota_id }};
+const modalEvento = document.getElementById("modal-evento");
+const modalWhats = document.getElementById("modal-whats");
+let tipoEvento = "cancelar";
+let notaAtual = null;
+
+function rotuloEvento(ev) {
+  const tipo = ev.tipo === "CANCELAMENTO" ? "Cancelamento" : "Carta de correção";
+  const seq = ev.tipo === "CARTA_CORRECAO" && ev.sequencia ? ` nº ${ev.sequencia}` : "";
+  return `${tipo}${seq}`;
+}
+
+function pendente(nota, tipo) {
+  return (nota.eventos || []).some((e) => e.tipo === tipo && (e.status === "PENDENTE" || e.status === "PROCESSANDO"));
+}
+
+async function carregar() {
+  notaAtual = await api(`/api/notas/${NOTA_ID}`);
+  document.querySelector("main > header h1").textContent =
+    `Nota ${String(notaAtual.numero).padStart(6, "0")} · série ${notaAtual.serie}`;
+  const aviso = document.getElementById("aviso");
+  if (notaAtual.status === "REJEITADA" && notaAtual.motivo_rejeicao) {
+    aviso.className = "aviso erro";
+    aviso.style.display = "block";
+    aviso.textContent = "Rejeitada: " + notaAtual.motivo_rejeicao;
+  } else if (pendente(notaAtual, "CANCELAMENTO")) {
+    aviso.className = "aviso";
+    aviso.style.display = "block";
+    aviso.textContent = "Cancelamento na fila — será transmitido quando houver internet.";
+  } else {
+    aviso.style.display = "none";
+  }
+
+  const acoes = [];
+  if (notaAtual.status === "AUTORIZADA" || notaAtual.status === "CANCELADA") {
+    acoes.push(`<a class="btn mini secundario" href="/api/notas/${notaAtual.id}/danfe" target="_blank">PDF</a>`);
+    acoes.push(`<a class="btn mini secundario" href="/api/notas/${notaAtual.id}/xml" target="_blank">XML</a>`);
+    acoes.push(`<button class="btn mini secundario" onclick="enviarEmail()">E-mail</button>`);
+    acoes.push(`<button class="btn mini secundario" onclick="abrirWhats()">WhatsApp</button>`);
+  }
+  acoes.push(`<button class="btn mini secundario" onclick="duplicar()">Duplicar</button>`);
+  if (notaAtual.status === "AUTORIZADA" && !pendente(notaAtual, "CANCELAMENTO")) {
+    acoes.push(`<button class="btn mini secundario" onclick="abrirEvento('carta')">Carta de correção</button>`);
+    acoes.push(`<button class="btn mini perigo" onclick="abrirEvento('cancelar')">Cancelar nota</button>`);
+  }
+  if (notaAtual.status === "RASCUNHO" || notaAtual.status === "REJEITADA") {
+    acoes.push(`<button class="btn mini" onclick="emitir()">Emitir</button>`);
+    acoes.push(`<button class="btn mini perigo" onclick="excluir()">Excluir</button>`);
+  }
+
+  const itens = (notaAtual.itens || []).map((i) => `
+    <tr>
+      <td>${escapeHtml(i.descricao)}</td>
+      <td>${escapeHtml(i.ncm)}</td>
+      <td>${i.quantidade}</td>
+      <td>${dinheiro(i.preco_unitario)}</td>
+      <td>${dinheiro(i.total)}</td>
+    </tr>`).join("") || '<tr><td colspan="5" class="vazio">Sem itens</td></tr>';
+
+  const eventos = (notaAtual.eventos || []).slice().reverse().map((e) => `
+    <li>
+      <strong>${rotuloEvento(e)}</strong>
+      <span class="badge ${e.status === "AUTORIZADO" ? "AUTORIZADA" : e.status === "REJEITADO" ? "REJEITADA" : e.status}">${e.status}</span>
+      <div class="texto-muted">${dataHora(e.criado_em)}${e.processado_em ? " · processado " + dataHora(e.processado_em) : ""}</div>
+      <div>${escapeHtml(e.texto)}</div>
+      ${e.motivo_rejeicao ? `<div class="texto-muted">Motivo: ${escapeHtml(e.motivo_rejeicao)}</div>` : ""}
+      ${e.xml_path ? `<a class="btn mini secundario" href="/api/notas/${notaAtual.id}/eventos/${e.id}/xml" target="_blank">XML do evento</a>` : ""}
+    </li>`).join("") || '<li class="texto-muted">Nenhum evento ainda.</li>';
+
+  document.getElementById("conteudo-nota").innerHTML = `
+    <div class="painel">
+      <h2>Resumo</h2>
+      <dl class="dl">
+        <dt>Status</dt><dd><span class="badge ${notaAtual.status}">${notaAtual.status}</span></dd>
+        <dt>Cliente</dt><dd>${escapeHtml(notaAtual.cliente ? notaAtual.cliente.nome : "")}</dd>
+        <dt>CPF/CNPJ</dt><dd>${escapeHtml(notaAtual.cliente ? notaAtual.cliente.cpf_cnpj : "") || "-"}</dd>
+        <dt>Valor</dt><dd>${dinheiro(notaAtual.total)}</dd>
+        <dt>Chave de acesso</dt><dd>${escapeHtml(notaAtual.chave_acesso) || "-"}</dd>
+        <dt>Protocolo</dt><dd>${escapeHtml(notaAtual.protocolo) || "-"}</dd>
+        <dt>Autorizada em</dt><dd>${dataHora(notaAtual.autorizada_em)}</dd>
+        <dt>Cancelada em</dt><dd>${dataHora(notaAtual.cancelada_em)}</dd>
+        <dt>Observações</dt><dd>${escapeHtml(notaAtual.observacoes) || "-"}</dd>
+      </dl>
+      <div class="acoes-linha">${acoes.join(" ")}</div>
+    </div>
+    <div class="painel">
+      <h2>Itens</h2>
+      <table>
+        <thead><tr><th>Descrição</th><th>NCM</th><th>Qtde</th><th>Unitário</th><th>Total</th></tr></thead>
+        <tbody>${itens}</tbody>
+      </table>
+    </div>
+    <div class="painel">
+      <h2>Eventos (cancelamento e carta de correção)</h2>
+      <ul class="timeline">${eventos}</ul>
+    </div>`;
+}
+
+function abrirEvento(tipo) {
+  tipoEvento = tipo;
+  document.getElementById("evento-texto").value = "";
+  if (tipo === "cancelar") {
+    document.getElementById("evento-titulo").textContent = "Cancelar nota";
+    document.getElementById("evento-label").textContent = "Justificativa *";
+    document.getElementById("evento-ajuda").textContent =
+      "O cancelamento costuma ser aceito pela SEFAZ em até 24 horas após a autorização (em alguns estados, até 7 dias). A justificativa é obrigatória. Sem internet, o pedido fica na fila.";
+    document.getElementById("evento-enviar").textContent = "Enfileirar cancelamento";
+  } else {
+    document.getElementById("evento-titulo").textContent = "Carta de correção";
+    document.getElementById("evento-label").textContent = "Correção *";
+    document.getElementById("evento-ajuda").textContent =
+      "A carta de correção NÃO pode alterar valores, quantidades, dados cadastrais essenciais nem a data de emissão. Use-a para erros de texto (endereço complementar, descrição, etc.).";
+    document.getElementById("evento-enviar").textContent = "Enfileirar carta de correção";
+  }
+  modalEvento.showModal();
+}
+
+document.getElementById("form-evento").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const texto = document.getElementById("evento-texto").value.trim();
+  const url = tipoEvento === "cancelar"
+    ? `/api/notas/${NOTA_ID}/cancelar`
+    : `/api/notas/${NOTA_ID}/carta-correcao`;
+  try {
+    await api(url, { method: "POST", body: { texto } });
+    await api("/api/notas/processar-fila", { method: "POST" });
+    toast(tipoEvento === "cancelar" ? "Cancelamento enviado à fila." : "Carta de correção enviada à fila.", "ok");
+    modalEvento.close();
+    carregar();
+  } catch (erro) {
+    toast(erro.message, "erro");
+  }
+});
+
+async function emitir() {
+  try {
+    await api(`/api/notas/${NOTA_ID}/emitir`, { method: "POST" });
+    await api("/api/notas/processar-fila", { method: "POST" });
+    toast("Nota enviada para emissão.", "ok");
+    carregar();
+  } catch (erro) { toast(erro.message, "erro"); }
+}
+
+async function excluir() {
+  if (!confirm("Excluir esta nota?")) return;
+  try {
+    await api(`/api/notas/${NOTA_ID}`, { method: "DELETE" });
+    location.href = "/notas";
+  } catch (erro) { toast(erro.message, "erro"); }
+}
+
+async function duplicar() {
+  try {
+    const nova = await api(`/api/notas/${NOTA_ID}/duplicar`, { method: "POST" });
+    toast("Rascunho criado a partir desta nota.", "ok");
+    location.href = `/notas/${nova.id}`;
+  } catch (erro) { toast(erro.message, "erro"); }
+}
+
+async function enviarEmail() {
+  try {
+    await api(`/api/notas/${NOTA_ID}/enviar-email`, { method: "POST" });
+    toast("E-mail enviado.", "ok");
+  } catch (erro) { toast(erro.message, "erro"); }
+}
+
+async function abrirWhats() {
+  try {
+    const dados = await api(`/api/notas/${NOTA_ID}/whatsapp`);
+    document.getElementById("whats-mensagem").value = dados.mensagem;
+    const botao = document.getElementById("whats-abrir");
+    if (dados.link) { botao.href = dados.link; botao.style.display = ""; }
+    else { botao.style.display = "none"; }
+    modalWhats.showModal();
+  } catch (erro) { toast(erro.message, "erro"); }
+}
+
+carregar();
+setInterval(carregar, 10000);
+</script>
+{% endblock %}

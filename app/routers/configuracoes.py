@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from ..database import get_db
-from ..models import Cliente, Nota, Produto, StatusNota
+from ..database import BACKUP_DIR, get_db
+from ..models import Cliente, Nota, NotaEvento, Produto, StatusEvento, StatusNota
+from ..services import backup as svc_backup
 from ..services import config as cfg
 from ..services.fila import esta_online
 
@@ -35,11 +37,40 @@ def status(db: Session = Depends(get_db)):
         s.value.lower(): db.query(Nota).filter(Nota.status == s).count()
         for s in StatusNota
     }
+    eventos_pendentes = (
+        db.query(NotaEvento)
+        .filter(NotaEvento.status.in_((StatusEvento.PENDENTE, StatusEvento.PROCESSANDO)))
+        .count()
+    )
+    recente = svc_backup.ultimo()
     return {
         "online": esta_online(),
         "notas": contagem,
+        "eventos_pendentes": eventos_pendentes,
         "clientes": db.query(Cliente).count(),
         "produtos": db.query(Produto).filter(Produto.ativo == 1).count(),
         "provedor": cfg.obter(db, "emissao_provedor"),
         "ambiente": cfg.obter(db, "emissao_ambiente"),
+        "ultimo_backup": recente.name if recente else None,
     }
+
+
+@router.get("/backups")
+def listar_backups():
+    return svc_backup.listar()
+
+
+@router.post("/backups")
+def criar_backup():
+    caminho = svc_backup.criar()
+    return {"nome": caminho.name, "tamanho": caminho.stat().st_size}
+
+
+@router.get("/backups/{nome}")
+def baixar_backup(nome: str):
+    if "/" in nome or "\\" in nome or not nome.startswith("nf-backup-") or not nome.endswith(".zip"):
+        raise HTTPException(400, "Nome de backup inválido.")
+    caminho = BACKUP_DIR / nome
+    if not caminho.exists():
+        raise HTTPException(404, "Backup não encontrado.")
+    return FileResponse(caminho, media_type="application/zip", filename=nome)

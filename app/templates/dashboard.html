@@ -15,6 +15,7 @@
   <div class="card alerta"><div class="valor" id="c-pendentes">-</div><div class="rotulo">Na fila (aguardando)</div></div>
   <div class="card"><div class="valor" id="c-clientes">-</div><div class="rotulo">Clientes</div></div>
   <div class="card"><div class="valor" id="c-produtos">-</div><div class="rotulo">Produtos ativos</div></div>
+  <div class="card"><div class="valor" id="c-canceladas">-</div><div class="rotulo">Canceladas</div></div>
 </div>
 
 <div class="painel">
@@ -39,6 +40,7 @@ document.addEventListener("status", (ev) => {
     (s.notas.pendente || 0) + (s.notas.processando || 0);
   document.getElementById("c-clientes").textContent = s.clientes;
   document.getElementById("c-produtos").textContent = s.produtos;
+  document.getElementById("c-canceladas").textContent = s.notas.cancelada || 0;
 });
 
 async function carregarRecentes() {
@@ -49,7 +51,7 @@ async function carregarRecentes() {
     return;
   }
   corpo.innerHTML = notas.slice(0, 8).map((n) => `
-    <tr>
+    <tr onclick="location.href='/notas/${n.id}'" style="cursor:pointer">
       <td>${String(n.numero).padStart(6, "0")}</td>
       <td>${escapeHtml(n.cliente ? n.cliente.nome : "")}</td>
       <td>${dinheiro(n.total)}</td>

@@ -10,11 +10,11 @@ do código. Provedores disponíveis:
 from sqlalchemy.orm import Session
 
 from .. import config as cfg
-from .base import EmissorBase, ResultadoEmissao
+from .base import EmissorBase, ResultadoEmissao, ResultadoEvento
 from .focus_nfe import EmissorFocusNFe
 from .simulado import EmissorSimulado
 
-__all__ = ["EmissorBase", "ResultadoEmissao", "obter_emissor"]
+__all__ = ["EmissorBase", "ResultadoEmissao", "ResultadoEvento", "obter_emissor"]
 
 
 def obter_emissor(db: Session) -> EmissorBase:

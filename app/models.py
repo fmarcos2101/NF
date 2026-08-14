@@ -89,10 +89,16 @@ class Nota(Base):
     criado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     autorizada_em: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     email_enviado_em: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cancelada_em: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    justificativa_cancelamento: Mapped[str] = mapped_column(Text, default="")
 
     cliente: Mapped["Cliente"] = relationship(back_populates="notas")
     itens: Mapped[list["NotaItem"]] = relationship(
         back_populates="nota", cascade="all, delete-orphan"
+    )
+    eventos: Mapped[list["NotaEvento"]] = relationship(
+        back_populates="nota", cascade="all, delete-orphan",
+        order_by="NotaEvento.id",
     )
 
 
@@ -114,3 +120,39 @@ class NotaItem(Base):
     total: Mapped[float] = mapped_column(Float, default=0.0)
 
     nota: Mapped["Nota"] = relationship(back_populates="itens")
+
+
+class TipoEvento(str, enum.Enum):
+    CANCELAMENTO = "CANCELAMENTO"
+    CARTA_CORRECAO = "CARTA_CORRECAO"
+
+
+class StatusEvento(str, enum.Enum):
+    PENDENTE = "PENDENTE"
+    PROCESSANDO = "PROCESSANDO"
+    AUTORIZADO = "AUTORIZADO"
+    REJEITADO = "REJEITADO"
+
+
+class NotaEvento(Base):
+    """Cancelamento e carta de correção — também entram na fila off-line."""
+
+    __tablename__ = "nota_eventos"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    nota_id: Mapped[int] = mapped_column(ForeignKey("notas.id"))
+    tipo: Mapped[TipoEvento] = mapped_column(Enum(TipoEvento))
+    status: Mapped[StatusEvento] = mapped_column(
+        Enum(StatusEvento), default=StatusEvento.PENDENTE
+    )
+    texto: Mapped[str] = mapped_column(Text, default="")
+    sequencia: Mapped[int] = mapped_column(Integer, default=0)
+    protocolo: Mapped[str] = mapped_column(String(30), default="")
+    xml_path: Mapped[str] = mapped_column(String(255), default="")
+    tentativas: Mapped[int] = mapped_column(Integer, default=0)
+    ultimo_erro: Mapped[str] = mapped_column(Text, default="")
+    motivo_rejeicao: Mapped[str] = mapped_column(Text, default="")
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    processado_em: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    nota: Mapped["Nota"] = relationship(back_populates="eventos")

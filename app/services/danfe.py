@@ -2,7 +2,7 @@
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 
-from ..models import Nota
+from ..models import Nota, StatusNota
 from .formatos import moeda
 
 LARGURA = 190  # área útil em mm (A4 com margens de 10)
@@ -60,6 +60,18 @@ def gerar_danfe(nota: Nota, emitente: dict[str, str], caminho: str) -> None:
         pdf.set_text_color(200, 30, 30)
         pdf.cell(LARGURA, 6, "DOCUMENTO SIMULADO - SEM VALIDADE FISCAL",
                  align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_text_color(0, 0, 0)
+        _linha(pdf, 2)
+
+    if nota.status == StatusNota.CANCELADA:
+        pdf.set_font("helvetica", "B", 12)
+        pdf.set_text_color(200, 30, 30)
+        pdf.cell(LARGURA, 7, "NOTA CANCELADA",
+                 align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        if nota.justificativa_cancelamento:
+            pdf.set_font("helvetica", "", 8)
+            pdf.cell(LARGURA, 5, f"Justificativa: {nota.justificativa_cancelamento}",
+                     align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         pdf.set_text_color(0, 0, 0)
         _linha(pdf, 2)
 

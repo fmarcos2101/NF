@@ -74,6 +74,24 @@
     <button type="submit" class="btn">Salvar configurações</button>
   </div>
 </form>
+
+<div class="painel">
+  <h2>Backup automático</h2>
+  <p class="texto-muted">
+    O sistema copia o banco e os XMLs/PDFs para um ZIP em <code>dados/backups/</code>
+    a cada 24 horas (e na primeira execução do dia). Os 14 arquivos mais recentes são mantidos.
+    Para restaurar, extraia o ZIP sobre a pasta <code>dados/</code> com o sistema parado.
+  </p>
+  <p id="backup-status" class="texto-muted">Carregando...</p>
+  <div class="acoes-linha">
+    <button type="button" class="btn secundario" onclick="gerarBackup()">Gerar backup agora</button>
+    <a class="btn" id="baixar-backup" href="#" style="display:none">Baixar último backup</a>
+  </div>
+  <table style="margin-top:16px">
+    <thead><tr><th>Arquivo</th><th>Tamanho</th><th>Criado em</th><th></th></tr></thead>
+    <tbody id="tabela-backups"><tr><td colspan="4" class="vazio">Nenhum backup ainda.</td></tr></tbody>
+  </table>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -100,5 +118,39 @@ form.addEventListener("submit", async (ev) => {
 });
 
 carregar();
+carregarBackups();
+
+async function carregarBackups() {
+  const lista = await api("/api/backups");
+  const corpo = document.getElementById("tabela-backups");
+  const status = document.getElementById("backup-status");
+  const link = document.getElementById("baixar-backup");
+  if (!lista.length) {
+    corpo.innerHTML = '<tr><td colspan="4" class="vazio">Nenhum backup ainda.</td></tr>';
+    status.textContent = "Nenhum backup gerado.";
+    link.style.display = "none";
+    return;
+  }
+  status.textContent = `Último backup: ${lista[0].nome}`;
+  link.href = `/api/backups/${lista[0].nome}`;
+  link.style.display = "";
+  corpo.innerHTML = lista.map((b) => `
+    <tr>
+      <td>${escapeHtml(b.nome)}</td>
+      <td>${(b.tamanho / 1024).toFixed(1)} KB</td>
+      <td>${dataHora(b.criado_em)}</td>
+      <td class="acoes"><a class="btn mini secundario" href="/api/backups/${encodeURIComponent(b.nome)}">Baixar</a></td>
+    </tr>`).join("");
+}
+
+async function gerarBackup() {
+  try {
+    const r = await api("/api/backups", { method: "POST" });
+    toast(`Backup ${r.nome} criado.`, "ok");
+    carregarBackups();
+  } catch (erro) {
+    toast(erro.message, "erro");
+  }
+}
 </script>
 {% endblock %}

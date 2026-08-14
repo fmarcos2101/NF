@@ -64,10 +64,12 @@ async function atualizarStatus() {
   try {
     const s = await api("/api/status");
     const pendentes = (s.notas.pendente || 0) + (s.notas.processando || 0);
+    const eventos = s.eventos_pendentes || 0;
     caixa.innerHTML = `
       <div><span class="status-dot ${s.online ? "online" : "offline"}"></span>
         ${s.online ? "On-line" : "Off-line"}</div>
       <div>${pendentes} nota(s) na fila</div>
+      ${eventos ? `<div>${eventos} evento(s) na fila</div>` : ""}
       <div class="texto-muted">${s.provedor === "focus_nfe" ? "Focus NFe" : "Emissor simulado"}
         · ${s.ambiente === "producao" ? "produção" : "homologação"}</div>`;
     document.dispatchEvent(new CustomEvent("status", { detail: s }));

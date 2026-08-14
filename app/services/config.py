@@ -30,6 +30,7 @@ PADROES = {
     # Nota
     "nota_serie": "1",
     "nota_proximo_numero": "1",
+    "backup_intervalo_horas": "24",
 }
 
 

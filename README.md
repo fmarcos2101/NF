@@ -31,6 +31,12 @@ uvicorn app.main:app --port 8000
 
 Abra http://localhost:8000 no navegador.
 
+Para conferir o fluxo de eventos e o backup:
+
+```bash
+PYTHONPATH=. python3 -m unittest tests.test_eventos -v
+```
+
 ### Primeiros passos
 
 1. Em **Configurações**, preencha os dados do emitente (razão social e CNPJ são
@@ -58,22 +64,36 @@ app/
   models.py                # clientes, produtos, notas, itens, configurações
   routers/                 # API REST (clientes, produtos, notas, configurações)
   services/
-    fila.py                # worker da fila off-line
+    fila.py                # worker da fila off-line (notas e eventos)
+    backup.py              # backup automático do banco e arquivos
     danfe.py               # geração do DANFE (PDF)
     email_sender.py        # envio SMTP com PDF + XML anexos
     whatsapp.py            # link wa.me com mensagem pronta
     emissores/             # provedores de emissão (simulado, Focus NFe)
   templates/ + static/     # interface web local (sem CDN, funciona off-line)
-dados/                     # criado em runtime: nf.db + PDFs/XMLs das notas
+dados/                     # criado em runtime: nf.db, PDFs/XMLs e backups
 ```
 
 ## Ciclo de vida da nota
 
 ```
-RASCUNHO → PENDENTE → PROCESSANDO → AUTORIZADA
+RASCUNHO → PENDENTE → PROCESSANDO → AUTORIZADA → CANCELADA
                         ↘ REJEITADA (corrigir e reemitir)
-Falha de rede durante a transmissão devolve a nota para PENDENTE.
+Falha de rede durante a transmissão devolve a nota (ou o evento) para PENDENTE.
 ```
+
+Na nota autorizada você pode:
+
+- **Cancelar**, com justificativa de no mínimo 15 caracteres (prazo típico da SEFAZ: 24 horas; em alguns estados, até 7 dias). Sem internet, o pedido fica na fila.
+- **Emitir carta de correção (CC-e)** para erros de texto. Não altera valor, quantidade, destinatário essencial nem data. Até 20 cartas por nota.
+- **Duplicar** como rascunho para repetir uma venda.
+
+## Backup automático
+
+A cada 24 horas (e na primeira subida do dia) o sistema gera um ZIP em
+`dados/backups/` com o banco SQLite e os XMLs/PDFs. Os 14 mais recentes são
+mantidos. Em **Configurações** dá para gerar e baixar na hora. Para restaurar,
+pare o sistema e extraia o ZIP sobre a pasta `dados/`.
 
 ## Stack
 

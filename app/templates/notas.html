@@ -6,6 +6,7 @@
 
 {% block conteudo %}
 <div class="barra-acoes">
+  <input type="search" id="busca" placeholder="Buscar por número, cliente, CPF/CNPJ..." style="max-width:280px">
   <select id="filtro-status" style="max-width:220px">
     <option value="">Todos os status</option>
     <option value="AUTORIZADA">Autorizadas</option>
@@ -13,6 +14,7 @@
     <option value="PROCESSANDO">Processando</option>
     <option value="RASCUNHO">Rascunhos</option>
     <option value="REJEITADA">Rejeitadas</option>
+    <option value="CANCELADA">Canceladas</option>
   </select>
   <div class="espaco"></div>
   <button class="btn secundario" onclick="processarFila()">Processar fila agora</button>
@@ -54,19 +56,17 @@ const modalWhats = document.getElementById("modal-whats");
 
 async function carregar() {
   const status = document.getElementById("filtro-status").value;
-  const notas = await api(`/api/notas?status=${status}`);
+  const busca = document.getElementById("busca").value;
+  const notas = await api(`/api/notas?status=${status}&busca=${encodeURIComponent(busca)}`);
   const corpo = document.getElementById("tabela");
   if (!notas.length) {
     corpo.innerHTML = '<tr><td colspan="7" class="vazio">Nenhuma nota encontrada.</td></tr>';
     return;
   }
   corpo.innerHTML = notas.map((n) => {
-    const acoes = [];
-    if (n.status === "AUTORIZADA") {
+    const acoes = [`<a class="btn mini secundario" href="/notas/${n.id}">Abrir</a>`];
+    if (n.status === "AUTORIZADA" || n.status === "CANCELADA") {
       acoes.push(`<a class="btn mini secundario" href="/api/notas/${n.id}/danfe" target="_blank">PDF</a>`);
-      acoes.push(`<a class="btn mini secundario" href="/api/notas/${n.id}/xml" target="_blank">XML</a>`);
-      acoes.push(`<button class="btn mini secundario" onclick="enviarEmail(${n.id})">E-mail</button>`);
-      acoes.push(`<button class="btn mini secundario" onclick="abrirWhats(${n.id})">WhatsApp</button>`);
     }
     if (n.status === "RASCUNHO" || n.status === "REJEITADA") {
       acoes.push(`<button class="btn mini" onclick="emitir(${n.id})">Emitir</button>`);
@@ -74,12 +74,14 @@ async function carregar() {
     }
     const alerta = n.status === "REJEITADA" && n.motivo_rejeicao
       ? `<div class="texto-muted">${escapeHtml(n.motivo_rejeicao)}</div>` : "";
+    const filaEvento = (n.eventos || []).some((e) => e.status === "PENDENTE" || e.status === "PROCESSANDO")
+      ? '<div class="texto-muted">Evento na fila</div>' : "";
     return `
     <tr>
       <td>${String(n.numero).padStart(6, "0")}</td>
       <td>${escapeHtml(n.cliente ? n.cliente.nome : "")}</td>
       <td>${dinheiro(n.total)}</td>
-      <td><span class="badge ${n.status}">${n.status}</span>${alerta}</td>
+      <td><span class="badge ${n.status}">${n.status}</span>${alerta}${filaEvento}</td>
       <td>${dataHora(n.criado_em)}</td>
       <td>${n.email_enviado_em ? "Enviado " + dataHora(n.email_enviado_em) : "-"}</td>
       <td class="acoes">${acoes.join(" ")}</td>
@@ -114,7 +116,7 @@ async function processarFila() {
     if (!r.online) {
       toast("Sem conexão com a internet. As notas seguem na fila.", "erro");
     } else {
-      toast(`Fila processada (${r.processadas} nota(s)).`, "ok");
+      toast(`Fila processada (${r.processadas} item(ns)).`, "ok");
     }
     carregar();
   } catch (erro) {
@@ -156,6 +158,7 @@ function copiarMensagem() {
 }
 
 document.getElementById("filtro-status").addEventListener("change", carregar);
+document.getElementById("busca").addEventListener("input", () => carregar());
 carregar();
 setInterval(carregar, 10000);
 </script>

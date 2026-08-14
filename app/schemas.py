@@ -85,5 +85,31 @@ class NotaOut(BaseModel):
     criado_em: datetime
     autorizada_em: datetime | None
     email_enviado_em: datetime | None
+    cancelada_em: datetime | None = None
+    justificativa_cancelamento: str = ""
     itens: list[ItemOut] = []
     cliente: ClienteOut | None = None
+    eventos: list["EventoOut"] = []
+
+
+class EventoIn(BaseModel):
+    texto: str = Field(min_length=15, max_length=1000)
+
+
+class EventoOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    tipo: str
+    status: str
+    texto: str
+    sequencia: int
+    protocolo: str
+    xml_path: str = ""
+    tentativas: int
+    ultimo_erro: str
+    motivo_rejeicao: str
+    criado_em: datetime
+    processado_em: datetime | None
+
+
+NotaOut.model_rebuild()
