@@ -35,8 +35,15 @@ def _rotulo_documento(nota: Nota) -> str:
     return f"nota fiscal nº {nota.numero:09d}"
 
 
-def montar_link(nota: Nota, config: dict[str, str], tipo: str = "emissao") -> dict[str, str]:
-    """tipo: emissao | cancelamento | carta"""
+def montar_link(
+    nota: Nota, config: dict[str, str], tipo: str = "emissao", com_anexo: bool = True
+) -> dict[str, str]:
+    """tipo: emissao | cancelamento | carta.
+
+    ``com_anexo=True`` gera o texto para envio manual via wa.me (o operador
+    anexa o PDF). No envio automático pela Cloud API a mensagem é só texto,
+    então a frase sobre anexo é omitida.
+    """
     cliente = nota.cliente
     nome = cliente.nome if cliente else "cliente"
     empresa = _empresa(config)
@@ -49,7 +56,7 @@ def montar_link(nota: Nota, config: dict[str, str], tipo: str = "emissao") -> di
             + f".\nValor: {moeda(nota.total)}"
             + (f"\nChave de acesso: {nota.chave_acesso}" if nota.chave_acesso else "")
             + (f"\nJustificativa: {nota.justificativa_cancelamento}" if nota.justificativa_cancelamento else "")
-            + "\nO PDF atualizado segue em anexo, se necessário."
+            + ("\nO PDF atualizado segue em anexo, se necessário." if com_anexo else "")
         )
     elif tipo == "carta":
         eventos = [
@@ -69,7 +76,7 @@ def montar_link(nota: Nota, config: dict[str, str], tipo: str = "emissao") -> di
             + (f" por {empresa}" if empresa else "")
             + f".\nValor total: {moeda(nota.total)}"
             + (f"\nChave de acesso: {nota.chave_acesso}" if nota.chave_acesso else "")
-            + "\nO PDF da nota segue em anexo."
+            + ("\nO PDF da nota segue em anexo." if com_anexo else "")
         )
 
     telefone = _telefone(nota)
@@ -83,7 +90,7 @@ def cloud_configurada(config: dict[str, str]) -> bool:
 
 def enviar_cloud(nota: Nota, config: dict[str, str], tipo: str = "emissao") -> dict:
     """Envia texto pela WhatsApp Cloud API. Não levanta exceção para o chamador da fila."""
-    dados = montar_link(nota, config, tipo=tipo)
+    dados = montar_link(nota, config, tipo=tipo, com_anexo=False)
     if not cloud_configurada(config):
         return {"enviado": False, "motivo": "WhatsApp Cloud API não configurada."}
     if not dados["telefone"]:
@@ -112,10 +119,12 @@ def enviar_cloud(nota: Nota, config: dict[str, str], tipo: str = "emissao") -> d
     return {"enviado": True, "motivo": ""}
 
 
-def tentar_enviar_cloud(nota: Nota, config: dict[str, str], tipo: str = "emissao") -> None:
+def tentar_enviar_cloud(nota: Nota, config: dict[str, str], tipo: str = "emissao") -> dict | None:
+    """Envio automático best-effort. Retorna o resultado para registro, ou None."""
     if not cloud_configurada(config):
-        return
+        return None
     try:
-        enviar_cloud(nota, config, tipo=tipo)
-    except Exception:
+        return enviar_cloud(nota, config, tipo=tipo)
+    except Exception as exc:
         log.exception("Falha inesperada no WhatsApp Cloud da nota %s", nota.id)
+        return {"enviado": False, "motivo": str(exc)}

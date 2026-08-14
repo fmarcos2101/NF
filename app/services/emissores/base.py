@@ -12,6 +12,7 @@ class ResultadoEmissao:
     motivo: str = ""       # motivo da rejeição, quando houver
     xml: str = ""          # XML autorizado (quando disponível)
     qrcode_url: str = ""
+    danfe_pdf: bytes = b""  # DANFE oficial do provedor (quando disponível)
 
 
 @dataclass

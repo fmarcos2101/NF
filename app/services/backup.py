@@ -40,8 +40,12 @@ def precisa_backup(intervalo_horas: int = INTERVALO_HORAS) -> bool:
 
 def criar() -> Path:
     """Copia o banco (via API de backup do SQLite) e os arquivos fiscais para um ZIP."""
+    import uuid
+
     BACKUP_DIR.mkdir(exist_ok=True)
-    nome = f"nf-backup-{datetime.now():%Y%m%d-%H%M%S}.zip"
+    # Sufixo aleatório: dois backups no mesmo segundo não colidem nem se sobrescrevem.
+    sufixo = uuid.uuid4().hex[:6]
+    nome = f"nf-backup-{datetime.now():%Y%m%d-%H%M%S}-{sufixo}.zip"
     destino = BACKUP_DIR / nome
     db_tmp = BACKUP_DIR / f".tmp-{nome}.db"
 

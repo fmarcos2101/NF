@@ -47,6 +47,7 @@
 {% block scripts %}
 <script>
 let produtos = [];
+const editandoId = parseInt(new URLSearchParams(location.search).get("editar") || "0");
 
 async function iniciar() {
   const [clientes, prods] = await Promise.all([
@@ -61,7 +62,38 @@ async function iniciar() {
     opcao.textContent = c.cpf_cnpj ? `${c.nome} — ${c.cpf_cnpj}` : c.nome;
     select.appendChild(opcao);
   });
-  adicionarItem();
+  if (editandoId) {
+    await carregarParaEdicao();
+  } else {
+    adicionarItem();
+  }
+}
+
+async function carregarParaEdicao() {
+  try {
+    const nota = await api(`/api/notas/${editandoId}`);
+    document.querySelector("main > header h1").textContent =
+      `Corrigir nota ${nota.numero ? String(nota.numero).padStart(6, "0") : "(rascunho)"}`;
+    document.getElementById("cliente").value = nota.cliente_id || "";
+    document.getElementById("desconto").value = nota.desconto || 0;
+    document.getElementById("observacoes").value = nota.observacoes || "";
+    (nota.itens || []).forEach((item) => {
+      adicionarItem();
+      const linha = document.querySelector("#itens tr:last-child");
+      const selectProduto = linha.querySelector(".produto");
+      selectProduto.value = item.produto_id || "";
+      linha.querySelector(".quantidade").value = item.quantidade;
+      linha.querySelector(".preco").value = item.preco_unitario;
+    });
+    if (!(nota.itens || []).length) adicionarItem();
+    recalcular();
+    if (nota.motivo_rejeicao) {
+      toast(`Motivo da rejeição: ${nota.motivo_rejeicao}`, "erro");
+    }
+  } catch (erro) {
+    toast(erro.message, "erro");
+    adicionarItem();
+  }
 }
 
 function adicionarItem() {
@@ -112,21 +144,21 @@ async function salvar(emitirAgora) {
   if (!itens.length) return toast("Adicione ao menos um item com produto selecionado.", "erro");
 
   try {
-    const nota = await api("/api/notas", {
-      method: "POST",
-      body: {
-        cliente_id: clienteId,
-        itens: itens.map(({ linha, ...item }) => item),
-        desconto: parseFloat(document.getElementById("desconto").value || "0"),
-        observacoes: document.getElementById("observacoes").value,
-        emitir_agora: emitirAgora,
-      },
-    });
+    const corpo = {
+      cliente_id: clienteId,
+      itens: itens.map(({ linha, ...item }) => item),
+      desconto: parseFloat(document.getElementById("desconto").value || "0"),
+      observacoes: document.getElementById("observacoes").value,
+      emitir_agora: emitirAgora,
+    };
+    const nota = editandoId
+      ? await api(`/api/notas/${editandoId}`, { method: "PUT", body: corpo })
+      : await api("/api/notas", { method: "POST", body: corpo });
     if (emitirAgora) {
       await api("/api/notas/processar-fila", { method: "POST" });
       toast(`Nota nº ${nota.numero} enviada para emissão. Se estiver off-line, ela fica na fila.`, "ok");
     } else {
-      toast(`Rascunho nº ${nota.numero} salvo.`, "ok");
+      toast("Rascunho salvo (o número fiscal é reservado na emissão).", "ok");
     }
     setTimeout(() => (location.href = "/notas"), 900);
   } catch (erro) {

@@ -63,7 +63,7 @@ function pendente(nota, tipo) {
 async function carregar() {
   notaAtual = await api(`/api/notas/${NOTA_ID}`);
   document.querySelector("main > header h1").textContent =
-    `${(notaAtual.modelo || 55) === 65 ? "NFC-e" : "NF-e"} ${String(notaAtual.numero).padStart(6, "0")} · série ${notaAtual.serie}`;
+    `${(notaAtual.modelo || 55) === 65 ? "NFC-e" : "NF-e"} ${notaAtual.numero ? String(notaAtual.numero).padStart(6, "0") : "(rascunho sem número)"} · série ${notaAtual.serie}`;
   const aviso = document.getElementById("aviso");
   if (notaAtual.status === "REJEITADA" && notaAtual.motivo_rejeicao) {
     aviso.className = "aviso erro";
@@ -94,6 +94,9 @@ async function carregar() {
     acoes.push(`<button class="btn mini perigo" onclick="abrirEvento('cancelar')">Cancelar nota</button>`);
   }
   if (notaAtual.status === "RASCUNHO" || notaAtual.status === "REJEITADA") {
+    if ((notaAtual.modelo || 55) !== 65) {
+      acoes.push(`<a class="btn mini secundario" href="/notas/nova?editar=${notaAtual.id}">Corrigir</a>`);
+    }
     acoes.push(`<button class="btn mini" onclick="emitir()">Emitir</button>`);
     acoes.push(`<button class="btn mini perigo" onclick="excluir()">Excluir</button>`);
   }

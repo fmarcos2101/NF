@@ -62,6 +62,8 @@ def _montar_itens(db: Session, nota: Nota, itens_in) -> float:
         produto = db.get(Produto, item_in.produto_id)
         if produto is None:
             raise HTTPException(400, f"Produto {item_in.produto_id} não encontrado")
+        if not produto.ativo:
+            raise HTTPException(400, f"Produto '{produto.descricao}' está desativado.")
         preco = item_in.preco_unitario if item_in.preco_unitario is not None else produto.preco
         subtotal = round(preco * item_in.quantidade, 2)
         total += subtotal
@@ -70,6 +72,7 @@ def _montar_itens(db: Session, nota: Nota, itens_in) -> float:
             descricao=produto.descricao,
             ncm=produto.ncm,
             cfop=produto.cfop,
+            csosn=produto.csosn,
             unidade=produto.unidade,
             quantidade=item_in.quantidade,
             preco_unitario=preco,
@@ -148,7 +151,7 @@ def criar(dados: NotaIn, db: Session = Depends(get_db)):
     nota = Nota(
         cliente_id=cliente.id,
         serie=int(cfg.obter(db, serie_chave) or "1"),
-        numero=cfg.proximo_numero_nota(db, modelo),
+        numero=0,  # o número fiscal é reservado só na hora de emitir
         desconto=dados.desconto,
         observacoes=dados.observacoes,
         status=StatusNota.PENDENTE if dados.emitir_agora else StatusNota.RASCUNHO,
@@ -156,8 +159,12 @@ def criar(dados: NotaIn, db: Session = Depends(get_db)):
         consumidor_cpf=consumidor_cpf,
         forma_pagamento=dados.forma_pagamento or "01",
     )
+    # Valida cliente e itens ANTES de reservar número, para não pular a sequência
+    # quando a requisição é rejeitada.
     total = _montar_itens(db, nota, dados.itens)
     nota.total = round(max(total - dados.desconto, 0), 2)
+    if dados.emitir_agora:
+        nota.numero = cfg.proximo_numero_nota(db, modelo)
     db.add(nota)
     db.commit()
     return _buscar_nota(db, nota.id)
@@ -174,10 +181,51 @@ def emitir(nota_id: int, db: Session = Depends(get_db)):
     nota = _buscar_nota(db, nota_id)
     if nota.status not in (StatusNota.RASCUNHO, StatusNota.REJEITADA):
         raise HTTPException(409, f"Nota com status {nota.status.value} não pode ser emitida.")
+    if not nota.numero:
+        nota.numero = cfg.proximo_numero_nota(db, nota.modelo or 55)
     nota.status = StatusNota.PENDENTE
     nota.motivo_rejeicao = ""
     db.commit()
-    return nota
+    return _buscar_nota(db, nota.id)
+
+
+@router.put("/{nota_id}", response_model=NotaOut)
+def corrigir(nota_id: int, dados: NotaIn, db: Session = Depends(get_db)):
+    """Corrige um rascunho ou uma nota rejeitada (cliente, itens, valores)."""
+    nota = _buscar_nota(db, nota_id)
+    if nota.status not in (StatusNota.RASCUNHO, StatusNota.REJEITADA):
+        raise HTTPException(409, "Somente rascunhos e notas rejeitadas podem ser corrigidos.")
+    modelo = nota.modelo or 55
+    if modelo == 55:
+        if not dados.cliente_id:
+            raise HTTPException(400, "Selecione o cliente da NF-e.")
+        cliente = db.get(Cliente, dados.cliente_id)
+        if cliente is None:
+            raise HTTPException(400, "Cliente não encontrado")
+    else:
+        cliente = db.get(Cliente, dados.cliente_id) if dados.cliente_id else _consumidor_avulso(db)
+        if cliente is None:
+            raise HTTPException(400, "Cliente não encontrado")
+    try:
+        consumidor_cpf = validar_cpf_cnpj(dados.consumidor_cpf)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    nota.itens.clear()
+    total = _montar_itens(db, nota, dados.itens)
+    nota.cliente_id = cliente.id
+    nota.desconto = dados.desconto
+    nota.observacoes = dados.observacoes
+    nota.consumidor_cpf = consumidor_cpf
+    nota.forma_pagamento = dados.forma_pagamento or "01"
+    nota.total = round(max(total - dados.desconto, 0), 2)
+    nota.motivo_rejeicao = ""
+    if dados.emitir_agora:
+        if not nota.numero:
+            nota.numero = cfg.proximo_numero_nota(db, modelo)
+        nota.status = StatusNota.PENDENTE
+    db.commit()
+    return _buscar_nota(db, nota.id)
 
 
 @router.post("/{nota_id}/duplicar", response_model=NotaOut, status_code=201)
@@ -186,7 +234,7 @@ def duplicar(nota_id: int, db: Session = Depends(get_db)):
     nova = Nota(
         cliente_id=origem.cliente_id,
         serie=int(cfg.obter(db, "nfce_serie" if origem.modelo == 65 else "nota_serie") or "1"),
-        numero=cfg.proximo_numero_nota(db, origem.modelo or 55),
+        numero=0,  # rascunho: o número fiscal só é reservado na emissão
         desconto=origem.desconto,
         observacoes=origem.observacoes,
         status=StatusNota.RASCUNHO,
@@ -201,6 +249,7 @@ def duplicar(nota_id: int, db: Session = Depends(get_db)):
             descricao=item.descricao,
             ncm=item.ncm,
             cfop=item.cfop,
+            csosn=item.csosn,
             unidade=item.unidade,
             quantidade=item.quantidade,
             preco_unitario=item.preco_unitario,

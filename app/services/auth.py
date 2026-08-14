@@ -38,17 +38,32 @@ def autenticar(db: Session, usuario: str, senha: str) -> bool:
     return verificar_senha(senha, cfg.obter(db, "auth_senha_hash"))
 
 
-def definir_senha(db: Session, nova: str, atual: str = "") -> None:
-    if len(nova) < 6:
-        raise ValueError("A senha deve ter no mínimo 6 caracteres.")
+def sessao_versao(db: Session) -> str:
+    return cfg.obter(db, "auth_sessao_versao") or "1"
+
+
+def _invalidar_sessoes(db: Session) -> dict[str, str]:
+    versao = int(sessao_versao(db)) + 1
+    return {"auth_sessao_versao": str(versao)}
+
+
+def validar_senha_atual(db: Session, atual: str) -> None:
+    """Confere a senha atual sem gravar nada (para validar antes de salvar)."""
     hash_atual = cfg.obter(db, "auth_senha_hash")
     if hash_atual and not verificar_senha(atual, hash_atual):
         raise ValueError("Senha atual incorreta.")
-    cfg.gravar(db, {"auth_senha_hash": hash_senha(nova)})
+
+
+def definir_senha(db: Session, nova: str, atual: str = "") -> None:
+    if len(nova) < 6:
+        raise ValueError("A senha deve ter no mínimo 6 caracteres.")
+    validar_senha_atual(db, atual)
+    # Sessões abertas antes da troca deixam de valer.
+    cfg.gravar(db, {"auth_senha_hash": hash_senha(nova), **_invalidar_sessoes(db)})
 
 
 def remover_senha(db: Session) -> None:
-    cfg.gravar(db, {"auth_senha_hash": ""})
+    cfg.gravar(db, {"auth_senha_hash": "", **_invalidar_sessoes(db)})
 
 
 def chave_sessao() -> str:

@@ -27,8 +27,8 @@ class Producao(unittest.TestCase):
             "emitente_uf": "SP",
         })
         cliente = cls.client.post("/api/clientes", json={
-            "nome": "Maria Teste", "cpf_cnpj": "11144477735",
-            "email": "maria@example.com", "whatsapp": "11988887777",
+            "nome": "Ana Produção", "cpf_cnpj": "52998224725",
+            "email": "ana@example.com", "whatsapp": "11988887777",
         }).json()
         produto = cls.client.post("/api/produtos", json={
             "descricao": "Produto teste", "preco": 10.0, "ncm": "61091000",

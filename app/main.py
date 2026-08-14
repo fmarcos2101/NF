@@ -55,9 +55,15 @@ async def exigir_login(request: Request, call_next):
     db = SessionLocal()
     try:
         precisa = auth.auth_ativa(db)
+        versao_atual = auth.sessao_versao(db) if precisa else ""
     finally:
         db.close()
-    if not precisa or request.session.get("usuario"):
+    # A sessão só vale se foi criada depois da última troca de senha.
+    sessao_valida = (
+        request.session.get("usuario")
+        and request.session.get("versao") == versao_atual
+    )
+    if not precisa or sessao_valida:
         return await call_next(request)
     if caminho.startswith("/api/"):
         return JSONResponse({"detail": "Não autenticado."}, status_code=401)

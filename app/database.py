@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 DATA_DIR = Path(os.environ.get("NF_DATA_DIR", Path(__file__).resolve().parent.parent / "dados"))
@@ -22,6 +22,13 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
 
+@event.listens_for(engine, "connect")
+def _ativar_foreign_keys(dbapi_conn, _record):
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -37,6 +44,10 @@ def garantir_schema() -> None:
             "consumidor_cpf": "TEXT DEFAULT ''",
             "forma_pagamento": "TEXT DEFAULT '01'",
             "qrcode_url": "TEXT DEFAULT ''",
+            "referencia": "TEXT DEFAULT ''",
+        },
+        "nota_itens": {
+            "csosn": "TEXT DEFAULT '102'",
         },
     }
     with engine.begin() as conn:
@@ -47,6 +58,25 @@ def garantir_schema() -> None:
             for nome, definicao in colunas.items():
                 if nome not in existentes:
                     conn.execute(text(f"ALTER TABLE {tabela} ADD COLUMN {nome} {definicao}"))
+        # Notas antigas sem referência ganham uma baseada no próprio id.
+        conn.execute(text(
+            "UPDATE notas SET referencia = 'nota-' || id WHERE referencia = '' OR referencia IS NULL"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_notas_status ON notas(status)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_eventos_status ON nota_eventos(status)"
+        ))
+        try:
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_notas_numeracao "
+                "ON notas(modelo, serie, numero) WHERE numero > 0"
+            ))
+        except Exception:
+            # Banco legado pode ter numeração duplicada; o índice fica de fora
+            # para não travar a subida, mas a numeração nova já é atômica.
+            pass
 
 
 def get_db():

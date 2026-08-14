@@ -63,12 +63,20 @@ class StatusNota(str, enum.Enum):
     CANCELADA = "CANCELADA"
 
 
+def _nova_referencia() -> str:
+    """Referência única por nota, exigida por provedores como a Focus NFe."""
+    import uuid
+
+    return uuid.uuid4().hex
+
+
 class Nota(Base):
     __tablename__ = "notas"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    numero: Mapped[int] = mapped_column(Integer, default=0)
+    numero: Mapped[int] = mapped_column(Integer, default=0)  # 0 = rascunho sem número fiscal
     serie: Mapped[int] = mapped_column(Integer, default=1)
+    referencia: Mapped[str] = mapped_column(String(40), default=_nova_referencia)
     cliente_id: Mapped[int] = mapped_column(ForeignKey("clientes.id"))
     status: Mapped[StatusNota] = mapped_column(
         Enum(StatusNota), default=StatusNota.RASCUNHO
@@ -118,6 +126,7 @@ class NotaItem(Base):
     descricao: Mapped[str] = mapped_column(String(200))
     ncm: Mapped[str] = mapped_column(String(8), default="00000000")
     cfop: Mapped[str] = mapped_column(String(4), default="5102")
+    csosn: Mapped[str] = mapped_column(String(4), default="102")
     unidade: Mapped[str] = mapped_column(String(6), default="UN")
     quantidade: Mapped[float] = mapped_column(Float, default=1.0)
     preco_unitario: Mapped[float] = mapped_column(Float, default=0.0)

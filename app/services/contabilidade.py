@@ -32,11 +32,13 @@ def montar_zip_xml(db: Session, ano: int, mes: int) -> tuple[bytes, int]:
             .all()
         )
         for nota in notas:
+            tipo = "NFCe" if nota.modelo == 65 else "NFe"
+            # Chave de acesso no nome garante unicidade entre séries e modelos.
+            base = nota.chave_acesso or f"{tipo}-serie{nota.serie}-{nota.numero:09d}"
             if _no_mes(nota.autorizada_em, inicio, fim) and nota.xml_path:
                 caminho = Path(nota.xml_path)
                 if caminho.exists():
-                    tipo = "NFCe" if nota.modelo == 65 else "NFe"
-                    zipf.write(caminho, arcname=f"{tipo}-{nota.numero:09d}.xml")
+                    zipf.write(caminho, arcname=f"{tipo}-{base}.xml")
                     incluidos += 1
             for evento in nota.eventos:
                 if evento.status != StatusEvento.AUTORIZADO:
@@ -49,7 +51,7 @@ def montar_zip_xml(db: Session, ano: int, mes: int) -> tuple[bytes, int]:
                 if not caminho.exists():
                     continue
                 sufixo = "canc" if evento.tipo == TipoEvento.CANCELAMENTO else "cce"
-                zipf.write(caminho, arcname=f"NFe-{nota.numero:09d}-{sufixo}-{evento.id}.xml")
+                zipf.write(caminho, arcname=f"{tipo}-{base}-{sufixo}-{evento.id}.xml")
                 incluidos += 1
 
         inutilizacoes = (

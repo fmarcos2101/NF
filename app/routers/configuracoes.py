@@ -20,16 +20,18 @@ def obter(db: Session = Depends(get_db)):
         if valores.get(chave):
             valores[chave] = "********"
     valores.pop("auth_senha_hash", None)
+    valores.pop("auth_sessao_versao", None)
     valores["auth_configurada"] = bool(cfg.obter(db, "auth_senha_hash"))
     return valores
 
 
 @router.put("/configuracoes")
-def gravar(valores: dict[str, str], db: Session = Depends(get_db)):
+def gravar(valores: dict[str, str], request: Request, db: Session = Depends(get_db)):
     for chave in ("smtp_senha", "focus_nfe_token", "whatsapp_token"):
         if valores.get(chave) == "********":
             valores.pop(chave)
     valores.pop("auth_senha_hash", None)
+    valores.pop("auth_sessao_versao", None)
     nova = (valores.pop("auth_senha_nova", None) or "").strip()
     atual = valores.pop("auth_senha_atual", None) or ""
     cnpj = valores.get("emitente_cnpj")
@@ -38,12 +40,20 @@ def gravar(valores: dict[str, str], db: Session = Depends(get_db)):
             valores["emitente_cnpj"] = validar_cpf_cnpj(cnpj)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-    cfg.gravar(db, valores)
+    # Tudo é validado ANTES de gravar qualquer coisa: se a troca de senha
+    # falhar, nenhuma outra configuração é aplicada.
     if nova:
         try:
-            auth.definir_senha(db, nova, atual)
+            if len(nova) < 6:
+                raise ValueError("A senha deve ter no mínimo 6 caracteres.")
+            auth.validar_senha_atual(db, atual)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
+    cfg.gravar(db, valores)
+    if nova:
+        auth.definir_senha(db, nova, atual)
+        if request.session.get("usuario"):
+            request.session["versao"] = auth.sessao_versao(db)
     return {"ok": True}
 
 

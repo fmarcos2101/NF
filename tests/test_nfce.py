@@ -22,13 +22,15 @@ class FluxoNfceWhatsapp(unittest.TestCase):
             "emitente_cnpj": "12345678000195",
             "emitente_uf": "SP",
         })
-        cls.client.post("/api/clientes", json={
-            "nome": "Maria Teste", "cpf_cnpj": "11144477735",
-            "email": "maria@example.com", "whatsapp": "11988887777",
-        })
-        cls.client.post("/api/produtos", json={
+        cliente = cls.client.post("/api/clientes", json={
+            "nome": "Marina NFC-e", "cpf_cnpj": "16899535009",
+            "email": "marina@example.com", "whatsapp": "11966665555",
+        }).json()
+        produto = cls.client.post("/api/produtos", json={
             "descricao": "Produto teste", "preco": 10.0, "ncm": "61091000",
-        })
+        }).json()
+        cls.cliente_id = cliente["id"]
+        cls.produto_id = produto["id"]
 
     @classmethod
     def tearDownClass(cls):
@@ -39,7 +41,7 @@ class FluxoNfceWhatsapp(unittest.TestCase):
             "modelo": 65,
             "forma_pagamento": "17",
             "consumidor_cpf": "11144477735",
-            "itens": [{"produto_id": 1, "quantidade": 2}],
+            "itens": [{"produto_id": self.produto_id, "quantidade": 2}],
             "emitir_agora": True,
         })
         self.assertEqual(r.status_code, 201, r.text)
@@ -61,8 +63,8 @@ class FluxoNfceWhatsapp(unittest.TestCase):
 
     def test_whatsapp_cancelamento_e_carta(self):
         criada = self.client.post("/api/notas", json={
-            "cliente_id": 1,
-            "itens": [{"produto_id": 1, "quantidade": 1}],
+            "cliente_id": self.cliente_id,
+            "itens": [{"produto_id": self.produto_id, "quantidade": 1}],
             "emitir_agora": True,
         }).json()
         self.client.post("/api/notas/processar-fila")
@@ -73,7 +75,7 @@ class FluxoNfceWhatsapp(unittest.TestCase):
         self.client.post("/api/notas/processar-fila")
         wa = self.client.get(f"/api/notas/{criada['id']}/whatsapp?tipo=carta").json()
         self.assertIn("carta de correção", wa["mensagem"].lower())
-        self.assertIn("11988887777", wa["telefone"] or wa["link"])
+        self.assertIn("11966665555", wa["telefone"] or wa["link"])
 
         self.client.post(
             f"/api/notas/{criada['id']}/cancelar",

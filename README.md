@@ -12,13 +12,24 @@ e-mail e WhatsApp.
   status `PENDENTE`. Um worker verifica a conectividade a cada 10 segundos e,
   quando a internet volta, transmite as notas na ordem em que foram criadas.
   Cancelamento, carta de correção e inutilização de numeração usam a mesma fila.
+  O processamento é serializado (lock) com "claim" atômico por item — nem duas
+  passadas simultâneas transmitem a mesma nota — e itens interrompidos no meio
+  da transmissão voltam à fila sozinhos. Após 10 falhas de comunicação o item é
+  marcado como rejeitado com o motivo.
+- **Numeração fiscal segura**: rascunhos não recebem número; o número da série
+  é reservado de forma atômica só no momento de emitir (um índice único em
+  `(modelo, série, número)` impede duplicidade). Criações rejeitadas não pulam
+  a sequência. Cada nota tem uma referência única (UUID) usada junto ao
+  provedor, o que evita colisões mesmo após restaurar um backup.
 - **Emissão por provedor**: a comunicação com a SEFAZ é feita por uma API de
   emissão (Focus NFe), que cuida do certificado digital A1, assinatura do XML e
   contingência. Há também um **modo simulado** para testar todo o fluxo sem
   certificado ou credenciais (gera chave de acesso e DANFE sem validade fiscal).
-- **Despacho**: quando a nota é autorizada, o sistema gera o DANFE (PDF), salva
-  o XML e envia os dois por e-mail (SMTP). O WhatsApp pode ser assistido
-  (`wa.me`) ou automático (Cloud API, se o token estiver em Configurações).
+- **Despacho**: quando a nota é autorizada, o sistema salva o XML autorizado e
+  o **DANFE oficial do provedor** (quando disponível; no modo simulado gera um
+  PDF local sem validade fiscal) e envia os dois por e-mail (SMTP). O WhatsApp
+  pode ser assistido (`wa.me`, com o PDF anexado manualmente) ou automático
+  (Cloud API — somente texto, sem promessa de anexo).
 - **NFC-e (modelo 65)**: venda no balcão, consumidor opcional, forma de
   pagamento, cupom térmico 80 mm com QR Code e envio ESC/POS para impressora
   de rede. NFC-e não admite carta de correção — cancele e emita outra.
@@ -37,7 +48,7 @@ uvicorn app.main:app --port 8000
 Abra http://localhost:8000 no navegador.
 
 ```bash
-PYTHONPATH=. python3 -m unittest tests.test_eventos tests.test_nfce tests.test_documentos tests.test_producao -v
+PYTHONPATH=. python3 -m pytest tests/ -q
 ```
 
 ### Primeiros passos
@@ -62,6 +73,12 @@ PYTHONPATH=. python3 -m unittest tests.test_eventos tests.test_nfce tests.test_d
    certificado digital A1 da empresa no painel deles e gere um token de API.
 2. Em **Configurações → Emissão**, selecione o provedor *Focus NFe*, escolha o
    ambiente (comece por *homologação*) e cole o token.
+3. O payload envia `data_emissao`, número/série locais, CSOSN por item (do
+   cadastro do produto), IE e indicador de contribuinte do destinatário e as
+   observações da nota. NFC-e é tratada como síncrona (`local_destino` interno).
+   Respostas 4xx do provedor rejeitam a nota com a mensagem retornada; 5xx/429
+   devolvem à fila. **Importante**: valide o fluxo completo em homologação
+   (com o seu contador) antes de emitir em produção.
 
 ## Estrutura do projeto
 
@@ -89,10 +106,13 @@ dados/                     # criado em runtime: nf.db, PDFs/XMLs e backups
 ## Ciclo de vida da nota
 
 ```
-RASCUNHO → PENDENTE → PROCESSANDO → AUTORIZADA → CANCELADA
-                        ↘ REJEITADA (corrigir e reemitir)
+RASCUNHO (sem número) → PENDENTE (número reservado) → PROCESSANDO → AUTORIZADA → CANCELADA
+                                                        ↘ REJEITADA (Corrigir e reemitir)
 Falha de rede durante a transmissão devolve a nota (ou o evento) para PENDENTE.
 ```
+
+Notas `RASCUNHO` ou `REJEITADA` têm o botão **Corrigir** (NF-e): abre a tela de
+edição com cliente, itens, desconto e observações para ajustar e reemitir.
 
 Na nota autorizada você pode:
 

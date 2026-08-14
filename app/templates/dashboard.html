@@ -53,7 +53,7 @@ async function carregarRecentes() {
   }
   corpo.innerHTML = notas.slice(0, 8).map((n) => `
     <tr onclick="location.href='/notas/${n.id}'" style="cursor:pointer">
-      <td>${String(n.numero).padStart(6, "0")} ${(n.modelo || 55) === 65 ? "NFC-e" : "NF-e"}</td>
+      <td>${n.numero ? String(n.numero).padStart(6, "0") : "—"} ${(n.modelo || 55) === 65 ? "NFC-e" : "NF-e"}</td>
       <td>${escapeHtml(n.cliente ? n.cliente.nome : "")}</td>
       <td>${dinheiro(n.total)}</td>
       <td><span class="badge ${n.status}">${n.status}</span></td>
