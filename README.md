@@ -18,9 +18,12 @@ e-mail e envio assistido por WhatsApp.
 - **Despacho automático**: quando a nota é autorizada, o sistema gera o DANFE
   (PDF), salva o XML e envia os dois por e-mail (SMTP) para o cliente.
 - **WhatsApp sem API**: o sistema gera um link `wa.me` com a mensagem pronta
-  (número da nota, valor e chave de acesso); basta clicar, anexar o PDF e
+  (emissão, cancelamento ou carta de correção); basta clicar, anexar o PDF e
   enviar. A camada é isolada, então dá para trocar depois por envio automático
   via WhatsApp Business API sem mexer no resto.
+- **NFC-e (modelo 65)**: venda no balcão, consumidor opcional, forma de
+  pagamento e cupom térmico 80 mm com QR Code. NFC-e não admite carta de
+  correção — cancele e emita outra.
 
 ## Executando
 
@@ -34,7 +37,7 @@ Abra http://localhost:8000 no navegador.
 Para conferir o fluxo de eventos e o backup:
 
 ```bash
-PYTHONPATH=. python3 -m unittest tests.test_eventos -v
+PYTHONPATH=. python3 -m unittest tests.test_eventos tests.test_nfce -v
 ```
 
 ### Primeiros passos
@@ -47,6 +50,8 @@ PYTHONPATH=. python3 -m unittest tests.test_eventos -v
 3. Em **Nova nota**, escolha o cliente, adicione os itens e clique em
    **Emitir nota**. Sem internet, a nota fica na fila e é transmitida sozinha
    quando a conexão voltar.
+4. Para venda no caixa, use **NFC-e (balcão)**: produtos, pagamento e CPF
+   opcional. O PDF do cupom abre em 80 mm para imprimir.
 
 ### Emissão real (Focus NFe)
 
@@ -66,7 +71,7 @@ app/
   services/
     fila.py                # worker da fila off-line (notas e eventos)
     backup.py              # backup automático do banco e arquivos
-    danfe.py               # geração do DANFE (PDF)
+    danfe.py / danfe_nfce.py  # DANFE A4 e cupom NFC-e 80 mm
     email_sender.py        # envio SMTP com PDF + XML anexos
     whatsapp.py            # link wa.me com mensagem pronta
     emissores/             # provedores de emissão (simulado, Focus NFe)
@@ -84,9 +89,21 @@ Falha de rede durante a transmissão devolve a nota (ou o evento) para PENDENTE.
 
 Na nota autorizada você pode:
 
-- **Cancelar**, com justificativa de no mínimo 15 caracteres (prazo típico da SEFAZ: 24 horas; em alguns estados, até 7 dias). Sem internet, o pedido fica na fila.
-- **Emitir carta de correção (CC-e)** para erros de texto. Não altera valor, quantidade, destinatário essencial nem data. Até 20 cartas por nota.
+- **Cancelar**, com justificativa de no mínimo 15 caracteres. Sem internet, o pedido fica na fila. Ao autorizar, abre o WhatsApp com a mensagem de cancelamento (se o cliente tiver número).
+- **Emitir carta de correção (CC-e)** na NF-e (não vale para NFC-e). Também gera link de WhatsApp com o texto da correção.
 - **Duplicar** como rascunho para repetir uma venda.
+
+## O que ainda falta (opcional, para produção)
+
+O ciclo operacional está fechado: emitir NF-e/NFC-e, fila off-line, cancelar, CC-e, e-mail, WhatsApp assistido e backup.
+
+Restam **5 passos** se quiser deixar o sistema mais redondo no dia a dia:
+
+1. **Pacote XML do mês para o contador** (ZIP com as notas do período).
+2. **Inutilização de numeração** (quando um número da série é pulado).
+3. **Validação de CPF/CNPJ** no cadastro.
+4. **Login simples** para proteger o painel na rede local.
+5. **Impressão térmica direta (ESC/POS)** e/ou **WhatsApp Business API** (envio sem clicar). O cupom 80 mm já imprime pelo PDF; o `wa.me` já cobre o aviso manual.
 
 ## Backup automático
 

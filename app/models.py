@@ -76,6 +76,10 @@ class Nota(Base):
     total: Mapped[float] = mapped_column(Float, default=0.0)
     desconto: Mapped[float] = mapped_column(Float, default=0.0)
     observacoes: Mapped[str] = mapped_column(Text, default="")
+    modelo: Mapped[int] = mapped_column(Integer, default=55)  # 55 NF-e, 65 NFC-e
+    consumidor_cpf: Mapped[str] = mapped_column(String(14), default="")
+    forma_pagamento: Mapped[str] = mapped_column(String(2), default="01")
+    qrcode_url: Mapped[str] = mapped_column(String(500), default="")
 
     # Resultado da emissão
     chave_acesso: Mapped[str] = mapped_column(String(44), default="")

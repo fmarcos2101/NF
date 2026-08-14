@@ -30,6 +30,8 @@ PADROES = {
     # Nota
     "nota_serie": "1",
     "nota_proximo_numero": "1",
+    "nfce_serie": "1",
+    "nfce_proximo_numero": "1",
     "backup_intervalo_horas": "24",
 }
 
@@ -61,8 +63,9 @@ def gravar(db: Session, valores: dict[str, str]) -> None:
     db.commit()
 
 
-def proximo_numero_nota(db: Session) -> int:
-    """Retorna e incrementa o número sequencial da nota."""
-    numero = int(obter(db, "nota_proximo_numero") or "1")
-    gravar(db, {"nota_proximo_numero": str(numero + 1)})
+def proximo_numero_nota(db: Session, modelo: int = 55) -> int:
+    """Retorna e incrementa o número sequencial (NF-e e NFC-e têm sequências próprias)."""
+    chave = "nfce_proximo_numero" if modelo == 65 else "nota_proximo_numero"
+    numero = int(obter(db, chave) or "1")
+    gravar(db, {chave: str(numero + 1)})
     return numero

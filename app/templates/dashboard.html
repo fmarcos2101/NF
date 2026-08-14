@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 
 {% block acoes %}
+<a class="btn secundario" href="/notas/nova-nfce">+ NFC-e</a>
 <a class="btn" href="/notas/nova">+ Nova nota</a>
 {% endblock %}
 
@@ -15,7 +16,7 @@
   <div class="card alerta"><div class="valor" id="c-pendentes">-</div><div class="rotulo">Na fila (aguardando)</div></div>
   <div class="card"><div class="valor" id="c-clientes">-</div><div class="rotulo">Clientes</div></div>
   <div class="card"><div class="valor" id="c-produtos">-</div><div class="rotulo">Produtos ativos</div></div>
-  <div class="card"><div class="valor" id="c-canceladas">-</div><div class="rotulo">Canceladas</div></div>
+  <div class="card"><div class="valor" id="c-nfce">-</div><div class="rotulo">NFC-e autorizadas</div></div>
 </div>
 
 <div class="painel">
@@ -40,7 +41,7 @@ document.addEventListener("status", (ev) => {
     (s.notas.pendente || 0) + (s.notas.processando || 0);
   document.getElementById("c-clientes").textContent = s.clientes;
   document.getElementById("c-produtos").textContent = s.produtos;
-  document.getElementById("c-canceladas").textContent = s.notas.cancelada || 0;
+  document.getElementById("c-nfce").textContent = s.nfce_autorizadas || 0;
 });
 
 async function carregarRecentes() {
@@ -52,7 +53,7 @@ async function carregarRecentes() {
   }
   corpo.innerHTML = notas.slice(0, 8).map((n) => `
     <tr onclick="location.href='/notas/${n.id}'" style="cursor:pointer">
-      <td>${String(n.numero).padStart(6, "0")}</td>
+      <td>${String(n.numero).padStart(6, "0")} ${(n.modelo || 55) === 65 ? "NFC-e" : "NF-e"}</td>
       <td>${escapeHtml(n.cliente ? n.cliente.nome : "")}</td>
       <td>${dinheiro(n.total)}</td>
       <td><span class="badge ${n.status}">${n.status}</span></td>

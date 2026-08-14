@@ -1,12 +1,18 @@
 {% extends "base.html" %}
 
 {% block acoes %}
-<a class="btn" href="/notas/nova">+ Nova nota</a>
+<a class="btn secundario" href="/notas/nova-nfce">+ NFC-e (balcão)</a>
+<a class="btn" href="/notas/nova">+ Nova NF-e</a>
 {% endblock %}
 
 {% block conteudo %}
 <div class="barra-acoes">
   <input type="search" id="busca" placeholder="Buscar por número, cliente, CPF/CNPJ..." style="max-width:280px">
+  <select id="filtro-modelo" style="max-width:160px">
+    <option value="">NF-e e NFC-e</option>
+    <option value="55">Só NF-e</option>
+    <option value="65">Só NFC-e</option>
+  </select>
   <select id="filtro-status" style="max-width:220px">
     <option value="">Todos os status</option>
     <option value="AUTORIZADA">Autorizadas</option>
@@ -23,7 +29,7 @@
 <div class="painel">
   <table>
     <thead>
-      <tr><th>Nº</th><th>Cliente</th><th>Valor</th><th>Status</th><th>Criada</th><th>E-mail</th><th></th></tr>
+      <tr><th>Nº</th><th>Tipo</th><th>Cliente</th><th>Valor</th><th>Status</th><th>Criada</th><th>E-mail</th><th></th></tr>
     </thead>
     <tbody id="tabela">
       <tr><td colspan="7" class="vazio">Carregando...</td></tr>
@@ -57,10 +63,13 @@ const modalWhats = document.getElementById("modal-whats");
 async function carregar() {
   const status = document.getElementById("filtro-status").value;
   const busca = document.getElementById("busca").value;
-  const notas = await api(`/api/notas?status=${status}&busca=${encodeURIComponent(busca)}`);
+  const modelo = document.getElementById("filtro-modelo").value;
+  const qs = new URLSearchParams({ status, busca });
+  if (modelo) qs.set("modelo", modelo);
+  const notas = await api(`/api/notas?${qs}`);
   const corpo = document.getElementById("tabela");
   if (!notas.length) {
-    corpo.innerHTML = '<tr><td colspan="7" class="vazio">Nenhuma nota encontrada.</td></tr>';
+    corpo.innerHTML = '<tr><td colspan="8" class="vazio">Nenhuma nota encontrada.</td></tr>';
     return;
   }
   corpo.innerHTML = notas.map((n) => {
@@ -79,6 +88,7 @@ async function carregar() {
     return `
     <tr>
       <td>${String(n.numero).padStart(6, "0")}</td>
+      <td>${(n.modelo || 55) === 65 ? "NFC-e" : "NF-e"}</td>
       <td>${escapeHtml(n.cliente ? n.cliente.nome : "")}</td>
       <td>${dinheiro(n.total)}</td>
       <td><span class="badge ${n.status}">${n.status}</span>${alerta}${filaEvento}</td>
@@ -158,6 +168,7 @@ function copiarMensagem() {
 }
 
 document.getElementById("filtro-status").addEventListener("change", carregar);
+document.getElementById("filtro-modelo").addEventListener("change", carregar);
 document.getElementById("busca").addEventListener("input", () => carregar());
 carregar();
 setInterval(carregar, 10000);

@@ -40,6 +40,20 @@ def _buscar_nota(db: Session, nota_id: int) -> Nota:
     return nota
 
 
+def _consumidor_avulso(db: Session) -> Cliente:
+    existente = (
+        db.query(Cliente)
+        .filter(Cliente.nome == "Consumidor não identificado")
+        .first()
+    )
+    if existente:
+        return existente
+    cliente = Cliente(nome="Consumidor não identificado", tipo="PF")
+    db.add(cliente)
+    db.commit()
+    return cliente
+
+
 def _montar_itens(db: Session, nota: Nota, itens_in) -> float:
     total = 0.0
     for item_in in itens_in:
@@ -63,7 +77,7 @@ def _montar_itens(db: Session, nota: Nota, itens_in) -> float:
 
 
 @router.get("", response_model=list[NotaOut])
-def listar(status: str = "", busca: str = "", db: Session = Depends(get_db)):
+def listar(status: str = "", busca: str = "", modelo: int = 0, db: Session = Depends(get_db)):
     consulta = (
         db.query(Nota)
         .options(joinedload(Nota.cliente), joinedload(Nota.itens), joinedload(Nota.eventos))
@@ -71,6 +85,8 @@ def listar(status: str = "", busca: str = "", db: Session = Depends(get_db)):
     )
     if status:
         consulta = consulta.filter(Nota.status == status)
+    if modelo:
+        consulta = consulta.filter(Nota.modelo == modelo)
     if busca:
         filtro = f"%{busca}%"
         condicoes = [
@@ -106,17 +122,32 @@ def processar_fila_agora():
 
 @router.post("", response_model=NotaOut, status_code=201)
 def criar(dados: NotaIn, db: Session = Depends(get_db)):
-    cliente = db.get(Cliente, dados.cliente_id)
-    if cliente is None:
-        raise HTTPException(400, "Cliente não encontrado")
+    modelo = 65 if dados.modelo == 65 else 55
+    if modelo == 55:
+        if not dados.cliente_id:
+            raise HTTPException(400, "Selecione o cliente da NF-e.")
+        cliente = db.get(Cliente, dados.cliente_id)
+        if cliente is None:
+            raise HTTPException(400, "Cliente não encontrado")
+    else:
+        if dados.cliente_id:
+            cliente = db.get(Cliente, dados.cliente_id)
+            if cliente is None:
+                raise HTTPException(400, "Cliente não encontrado")
+        else:
+            cliente = _consumidor_avulso(db)
 
+    serie_chave = "nfce_serie" if modelo == 65 else "nota_serie"
     nota = Nota(
         cliente_id=cliente.id,
-        serie=int(cfg.obter(db, "nota_serie") or "1"),
-        numero=cfg.proximo_numero_nota(db),
+        serie=int(cfg.obter(db, serie_chave) or "1"),
+        numero=cfg.proximo_numero_nota(db, modelo),
         desconto=dados.desconto,
         observacoes=dados.observacoes,
         status=StatusNota.PENDENTE if dados.emitir_agora else StatusNota.RASCUNHO,
+        modelo=modelo,
+        consumidor_cpf="".join(c for c in dados.consumidor_cpf if c.isdigit()),
+        forma_pagamento=dados.forma_pagamento or "01",
     )
     total = _montar_itens(db, nota, dados.itens)
     nota.total = round(max(total - dados.desconto, 0), 2)
@@ -147,12 +178,15 @@ def duplicar(nota_id: int, db: Session = Depends(get_db)):
     origem = _buscar_nota(db, nota_id)
     nova = Nota(
         cliente_id=origem.cliente_id,
-        serie=int(cfg.obter(db, "nota_serie") or "1"),
-        numero=cfg.proximo_numero_nota(db),
+        serie=int(cfg.obter(db, "nfce_serie" if origem.modelo == 65 else "nota_serie") or "1"),
+        numero=cfg.proximo_numero_nota(db, origem.modelo or 55),
         desconto=origem.desconto,
         observacoes=origem.observacoes,
         status=StatusNota.RASCUNHO,
         total=origem.total,
+        modelo=origem.modelo or 55,
+        consumidor_cpf=origem.consumidor_cpf,
+        forma_pagamento=origem.forma_pagamento,
     )
     for item in origem.itens:
         nova.itens.append(NotaItem(
@@ -203,6 +237,8 @@ def cancelar(nota_id: int, dados: EventoIn, db: Session = Depends(get_db)):
 @router.post("/{nota_id}/carta-correcao", response_model=EventoOut, status_code=201)
 def carta_correcao(nota_id: int, dados: EventoIn, db: Session = Depends(get_db)):
     nota = _buscar_nota(db, nota_id)
+    if nota.modelo == 65:
+        raise HTTPException(409, "NFC-e não admite carta de correção. Cancele e emita outra.")
     if nota.status != StatusNota.AUTORIZADA:
         raise HTTPException(409, "Somente notas autorizadas aceitam carta de correção.")
     autorizadas = [e for e in nota.eventos if e.tipo == TipoEvento.CARTA_CORRECAO and e.status == StatusEvento.AUTORIZADO]
@@ -232,7 +268,7 @@ def baixar_danfe(nota_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "DANFE ainda não gerado.")
     return FileResponse(
         nota.pdf_path, media_type="application/pdf",
-        filename=f"NF-{nota.numero:09d}.pdf",
+        filename=f"{'NFCe' if nota.modelo == 65 else 'NF'}-{nota.numero:09d}.pdf",
     )
 
 
@@ -275,8 +311,14 @@ def enviar_email(nota_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{nota_id}/whatsapp")
-def link_whatsapp(nota_id: int, db: Session = Depends(get_db)):
+def link_whatsapp(nota_id: int, tipo: str = "emissao", db: Session = Depends(get_db)):
     nota = _buscar_nota(db, nota_id)
-    if nota.status not in (StatusNota.AUTORIZADA, StatusNota.CANCELADA):
+    if tipo not in ("emissao", "cancelamento", "carta"):
+        raise HTTPException(400, "Tipo inválido. Use emissao, cancelamento ou carta.")
+    if tipo == "emissao" and nota.status not in (StatusNota.AUTORIZADA, StatusNota.CANCELADA):
         raise HTTPException(409, "Somente notas autorizadas ou canceladas podem ser enviadas.")
-    return montar_link(nota, cfg.obter_todas(db))
+    if tipo == "cancelamento" and nota.status != StatusNota.CANCELADA:
+        raise HTTPException(409, "A nota ainda não está cancelada.")
+    if tipo == "carta" and nota.status != StatusNota.AUTORIZADA:
+        raise HTTPException(409, "Somente notas autorizadas têm carta de correção.")
+    return montar_link(nota, cfg.obter_todas(db), tipo=tipo)

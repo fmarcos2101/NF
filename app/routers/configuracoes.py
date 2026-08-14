@@ -52,6 +52,7 @@ def status(db: Session = Depends(get_db)):
         "provedor": cfg.obter(db, "emissao_provedor"),
         "ambiente": cfg.obter(db, "emissao_ambiente"),
         "ultimo_backup": recente.name if recente else None,
+        "nfce_autorizadas": db.query(Nota).filter(Nota.modelo == 65, Nota.status == StatusNota.AUTORIZADA).count(),
     }
 
 

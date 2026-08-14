@@ -39,7 +39,7 @@ def _montar_chave(nota: Nota, emitente: dict[str, str]) -> str:
         f"{uf}"
         f"{agora:%y%m}"
         f"{cnpj}"
-        f"55"                          # modelo NF-e
+        f"{getattr(nota, 'modelo', 55):02d}"
         f"{nota.serie:03d}"
         f"{nota.numero:09d}"
         f"1"                           # forma de emissão normal
@@ -90,11 +90,15 @@ class EmissorSimulado(EmissorBase):
                 motivo="Preencha a razão social e o CNPJ do emitente em Configurações.",
             )
         chave = _montar_chave(nota, emitente)
+        qrcode_url = ""
+        if getattr(nota, "modelo", 55) == 65:
+            qrcode_url = f"https://www.nfe.fazenda.gov.br/portal/consultaRecaptcha.aspx?tipoConsulta=completa&nfe={chave}"
         return ResultadoEmissao(
             autorizada=True,
             chave_acesso=chave,
             protocolo=f"SIM{datetime.now():%Y%m%d%H%M%S}",
             xml=_montar_xml(nota, emitente, chave),
+            qrcode_url=qrcode_url,
         )
 
     def cancelar(self, nota: Nota, justificativa: str) -> ResultadoEvento:
@@ -115,6 +119,11 @@ class EmissorSimulado(EmissorBase):
         )
 
     def carta_correcao(self, nota: Nota, texto: str) -> ResultadoEvento:
+        if getattr(nota, "modelo", 55) == 65:
+            return ResultadoEvento(
+                autorizado=False,
+                motivo="NFC-e não admite carta de correção. Cancele e emita outra.",
+            )
         if not nota.chave_acesso:
             return ResultadoEvento(autorizado=False, motivo="Nota sem chave de acesso.")
         return ResultadoEvento(

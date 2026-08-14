@@ -140,3 +140,12 @@ def gerar_danfe(nota: Nota, emitente: dict[str, str], caminho: str) -> None:
         pdf.multi_cell(LARGURA, 5, nota.observacoes)
 
     pdf.output(caminho)
+
+
+def gerar_documento(nota: Nota, emitente: dict[str, str], caminho: str) -> None:
+    """Gera o PDF adequado ao modelo: DANFE A4 (NF-e) ou cupom 80 mm (NFC-e)."""
+    if getattr(nota, "modelo", 55) == 65:
+        from .danfe_nfce import gerar_danfe_nfce
+        gerar_danfe_nfce(nota, emitente, caminho)
+        return
+    gerar_danfe(nota, emitente, caminho)

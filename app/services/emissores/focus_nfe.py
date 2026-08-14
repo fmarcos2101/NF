@@ -20,24 +20,21 @@ class EmissorFocusNFe(EmissorBase):
         self.token = token
         self.base_url = URLS.get(ambiente, URLS["homologacao"])
 
+    def _recurso(self, nota: Nota) -> str:
+        return "nfce" if getattr(nota, "modelo", 55) == 65 else "nfe"
+
     def _payload(self, nota: Nota, emitente: dict[str, str]) -> dict:
         cliente = nota.cliente
-        doc_cliente = "".join(c for c in cliente.cpf_cnpj if c.isdigit())
+        doc_cliente = "".join(c for c in ((nota.consumidor_cpf or "") or (cliente.cpf_cnpj if cliente else "")) if c.isdigit())
+        nfce = getattr(nota, "modelo", 55) == 65
         payload = {
-            "natureza_operacao": "Venda de mercadoria",
+            "natureza_operacao": "Venda ao consumidor" if nfce else "Venda de mercadoria",
             "tipo_documento": 1,
             "finalidade_emissao": 1,
             "presenca_comprador": 1,
             "cnpj_emitente": "".join(
                 c for c in emitente.get("emitente_cnpj", "") if c.isdigit()
             ),
-            "nome_destinatario": cliente.nome,
-            "logradouro_destinatario": cliente.logradouro,
-            "numero_destinatario": cliente.numero,
-            "bairro_destinatario": cliente.bairro,
-            "municipio_destinatario": cliente.municipio,
-            "uf_destinatario": cliente.uf,
-            "cep_destinatario": "".join(c for c in cliente.cep if c.isdigit()),
             "valor_frete": 0.0,
             "valor_desconto": nota.desconto,
             "valor_total": nota.total,
@@ -64,6 +61,26 @@ class EmissorFocusNFe(EmissorBase):
                 for i, item in enumerate(nota.itens)
             ],
         }
+        if nfce:
+            payload["formas_pagamento"] = [{
+                "forma_pagamento": nota.forma_pagamento or "01",
+                "valor_pagamento": nota.total,
+            }]
+            if cliente and cliente.nome and cliente.nome != "Consumidor não identificado":
+                payload["nome_destinatario"] = cliente.nome
+            if len(doc_cliente) == 11:
+                payload["cpf_destinatario"] = doc_cliente
+            elif len(doc_cliente) == 14:
+                payload["cnpj_destinatario"] = doc_cliente
+            return payload
+
+        payload["nome_destinatario"] = cliente.nome if cliente else ""
+        payload["logradouro_destinatario"] = cliente.logradouro if cliente else ""
+        payload["numero_destinatario"] = cliente.numero if cliente else ""
+        payload["bairro_destinatario"] = cliente.bairro if cliente else ""
+        payload["municipio_destinatario"] = cliente.municipio if cliente else ""
+        payload["uf_destinatario"] = cliente.uf if cliente else ""
+        payload["cep_destinatario"] = "".join(c for c in (cliente.cep if cliente else "") if c.isdigit())
         if len(doc_cliente) == 11:
             payload["cpf_destinatario"] = doc_cliente
         else:
@@ -76,17 +93,17 @@ class EmissorFocusNFe(EmissorBase):
                 autorizada=False,
                 motivo="Token da Focus NFe não configurado (Configurações).",
             )
-        referencia = f"nota-{nota.id}"
+        referencia = self._referencia(nota)
+        recurso = self._recurso(nota)
         try:
             resposta = httpx.post(
-                f"{self.base_url}/v2/nfe?ref={referencia}",
+                f"{self.base_url}/v2/{recurso}?ref={referencia}",
                 json=self._payload(nota, emitente),
                 auth=(self.token, ""),
                 timeout=30,
             )
-            # A emissão é assíncrona na Focus; consulta o resultado
             consulta = httpx.get(
-                f"{self.base_url}/v2/nfe/{referencia}",
+                f"{self.base_url}/v2/{recurso}/{referencia}",
                 auth=(self.token, ""),
                 timeout=30,
             )
@@ -109,12 +126,13 @@ class EmissorFocusNFe(EmissorBase):
                         timeout=30,
                     ).text
                 except httpx.HTTPError:
-                    pass  # XML pode ser baixado depois; não bloqueia a autorização
+                    pass
             return ResultadoEmissao(
                 autorizada=True,
-                chave_acesso=dados.get("chave_nfe", "").replace("NFe", ""),
+                chave_acesso=(dados.get("chave_nfe") or dados.get("chave_nfce") or "").replace("NFe", "").replace("NFCe", ""),
                 protocolo=str(dados.get("numero_protocolo", "")),
                 xml=xml,
+                qrcode_url=dados.get("qrcode_url") or dados.get("url_consulta_nf") or "",
             )
         if status in ("processando_autorizacao", ""):
             raise ErroComunicacao("Nota ainda em processamento na SEFAZ; nova tentativa em instantes.")
@@ -134,7 +152,7 @@ class EmissorFocusNFe(EmissorBase):
             )
         try:
             resposta = httpx.delete(
-                f"{self.base_url}/v2/nfe/{self._referencia(nota)}",
+                f"{self.base_url}/v2/{self._recurso(nota)}/{self._referencia(nota)}",
                 json={"justificativa": justificativa},
                 auth=(self.token, ""),
                 timeout=30,
@@ -171,6 +189,11 @@ class EmissorFocusNFe(EmissorBase):
         )
 
     def carta_correcao(self, nota: Nota, texto: str) -> ResultadoEvento:
+        if getattr(nota, "modelo", 55) == 65:
+            return ResultadoEvento(
+                autorizado=False,
+                motivo="NFC-e não admite carta de correção. Cancele e emita outra.",
+            )
         if not self.token:
             return ResultadoEvento(
                 autorizado=False,

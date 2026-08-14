@@ -22,7 +22,7 @@ from ..models import (
 )
 from . import backup as svc_backup
 from . import config as cfg
-from .danfe import gerar_danfe
+from .danfe import gerar_documento
 from .email_sender import enviar_cancelamento_por_email, enviar_nota_por_email, smtp_configurado
 from .emissores import obter_emissor
 from .emissores.base import ErroComunicacao
@@ -56,6 +56,13 @@ def _finalizar_autorizacao(db, nota: Nota, resultado, emitente: dict[str, str]) 
     nota.protocolo = resultado.protocolo
     nota.autorizada_em = datetime.now()
     nota.ultimo_erro = ""
+    if getattr(resultado, "qrcode_url", ""):
+        nota.qrcode_url = resultado.qrcode_url
+    elif getattr(nota, "modelo", 55) == 65 and resultado.chave_acesso:
+        nota.qrcode_url = (
+            "https://www.nfe.fazenda.gov.br/portal/consultaRecaptcha.aspx"
+            f"?tipoConsulta=completa&nfe={resultado.chave_acesso}"
+        )
 
     if resultado.xml:
         xml_path = ARQUIVOS_DIR / f"nota-{nota.id}.xml"
@@ -64,7 +71,7 @@ def _finalizar_autorizacao(db, nota: Nota, resultado, emitente: dict[str, str]) 
 
     pdf_path = ARQUIVOS_DIR / f"nota-{nota.id}.pdf"
     try:
-        gerar_danfe(nota, emitente, str(pdf_path))
+        gerar_documento(nota, emitente, str(pdf_path))
         nota.pdf_path = str(pdf_path)
     except Exception as exc:  # PDF não pode impedir a autorização
         log.exception("Falha ao gerar DANFE da nota %s", nota.id)
@@ -171,7 +178,7 @@ def processar_evento(db, evento: NotaEvento) -> None:
         nota.justificativa_cancelamento = evento.texto
         if nota.pdf_path:
             try:
-                gerar_danfe(nota, emitente, nota.pdf_path)
+                gerar_documento(nota, emitente, nota.pdf_path)
             except Exception:
                 log.exception("Falha ao regenerar DANFE cancelado da nota %s", nota.id)
         if nota.cliente and nota.cliente.email and smtp_configurado(emitente):

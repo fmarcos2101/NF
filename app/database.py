@@ -33,6 +33,10 @@ def garantir_schema() -> None:
         "notas": {
             "cancelada_em": "DATETIME",
             "justificativa_cancelamento": "TEXT DEFAULT ''",
+            "modelo": "INTEGER DEFAULT 55",
+            "consumidor_cpf": "TEXT DEFAULT ''",
+            "forma_pagamento": "TEXT DEFAULT '01'",
+            "qrcode_url": "TEXT DEFAULT ''",
         },
     }
     with engine.begin() as conn:

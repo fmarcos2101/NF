@@ -11,6 +11,7 @@ class ResultadoEmissao:
     protocolo: str = ""
     motivo: str = ""       # motivo da rejeição, quando houver
     xml: str = ""          # XML autorizado (quando disponível)
+    qrcode_url: str = ""
 
 
 @dataclass

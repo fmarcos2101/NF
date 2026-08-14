@@ -46,6 +46,7 @@ PAGINAS = {
     "/produtos": ("produtos.html", "Produtos"),
     "/notas": ("notas.html", "Notas fiscais"),
     "/notas/nova": ("nova_nota.html", "Nova nota"),
+    "/notas/nova-nfce": ("nova_nfce.html", "Nova NFC-e"),
     "/configuracoes": ("configuracoes.html", "Configurações"),
 }
 

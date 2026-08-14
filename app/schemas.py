@@ -48,11 +48,14 @@ class ItemIn(BaseModel):
 
 
 class NotaIn(BaseModel):
-    cliente_id: int
+    cliente_id: int | None = None
     itens: list[ItemIn] = Field(min_length=1)
     desconto: float = 0.0
     observacoes: str = ""
     emitir_agora: bool = True  # False = salva como rascunho
+    modelo: int = 55  # 55 NF-e, 65 NFC-e
+    consumidor_cpf: str = ""
+    forma_pagamento: str = "01"
 
 
 class ItemOut(BaseModel):
@@ -72,11 +75,15 @@ class NotaOut(BaseModel):
     id: int
     numero: int
     serie: int
-    cliente_id: int
+    cliente_id: int | None
     status: str
     total: float
     desconto: float
     observacoes: str
+    modelo: int = 55
+    consumidor_cpf: str = ""
+    forma_pagamento: str = "01"
+    qrcode_url: str = ""
     chave_acesso: str
     protocolo: str
     motivo_rejeicao: str

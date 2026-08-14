@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+
+{% block acoes %}
+<a class="btn secundario" href="/notas">← Voltar</a>
+{% endblock %}
+
+{% block conteudo %}
+<p class="texto-muted">Venda no balcão. Cliente e CPF são opcionais. O cupom sai em 80 mm (abra o PDF e imprima).</p>
+
+<div class="painel">
+  <h2>Itens</h2>
+  <div class="form-grid">
+    <div class="c8">
+      <label>Produto</label>
+      <select id="produto"><option value="">Selecione...</option></select>
+    </div>
+    <div class="c4">
+      <label>Qtde</label>
+      <input id="qtde" type="number" step="0.001" min="0.001" value="1">
+    </div>
+  </div>
+  <div class="acoes-linha">
+    <button class="btn" onclick="adicionar()">+ Adicionar</button>
+  </div>
+  <table style="margin-top:12px">
+    <thead><tr><th>Produto</th><th>Qtde</th><th>Unitário</th><th>Total</th><th></th></tr></thead>
+    <tbody id="itens"><tr><td colspan="5" class="vazio">Nenhum item.</td></tr></tbody>
+  </table>
+  <div class="total-nota" style="margin-top:12px">Total: <span id="total">R$ 0,00</span></div>
+</div>
+
+<div class="painel">
+  <h2>Pagamento e destinatário</h2>
+  <div class="form-grid">
+    <div class="c4">
+      <label>Forma de pagamento</label>
+      <select id="forma">
+        <option value="01">Dinheiro</option>
+        <option value="17">PIX</option>
+        <option value="03">Cartão de crédito</option>
+        <option value="04">Cartão de débito</option>
+        <option value="18">Transferência</option>
+        <option value="99">Outros</option>
+      </select>
+    </div>
+    <div class="c4">
+      <label>CPF na nota (opcional)</label>
+      <input id="cpf" placeholder="Somente números" maxlength="14">
+    </div>
+    <div class="c4">
+      <label>Cliente cadastrado (opcional)</label>
+      <select id="cliente"><option value="">Consumidor não identificado</option></select>
+    </div>
+  </div>
+</div>
+
+<div class="barra-acoes">
+  <div class="espaco"></div>
+  <button class="btn" onclick="emitir()">Emitir NFC-e</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let produtos = [];
+const itens = [];
+
+async function iniciar() {
+  const [cli, prods] = await Promise.all([api("/api/clientes"), api("/api/produtos")]);
+  produtos = prods;
+  const selP = document.getElementById("produto");
+  prods.forEach((p) => {
+    const o = document.createElement("option");
+    o.value = p.id;
+    o.textContent = `${p.descricao} — ${dinheiro(p.preco)}`;
+    selP.appendChild(o);
+  });
+  const selC = document.getElementById("cliente");
+  cli.filter((c) => c.nome !== "Consumidor não identificado").forEach((c) => {
+    const o = document.createElement("option");
+    o.value = c.id;
+    o.textContent = c.nome;
+    selC.appendChild(o);
+  });
+}
+
+function adicionar() {
+  const id = parseInt(document.getElementById("produto").value || "0");
+  const qtde = parseFloat(document.getElementById("qtde").value || "0");
+  const produto = produtos.find((p) => p.id === id);
+  if (!produto || qtde <= 0) return toast("Selecione um produto e a quantidade.", "erro");
+  itens.push({ produto_id: produto.id, descricao: produto.descricao, quantidade: qtde, preco_unitario: produto.preco, total: round2(qtde * produto.preco) });
+  document.getElementById("qtde").value = "1";
+  desenhar();
+}
+
+function round2(n) { return Math.round(n * 100) / 100; }
+
+function desenhar() {
+  const corpo = document.getElementById("itens");
+  if (!itens.length) {
+    corpo.innerHTML = '<tr><td colspan="5" class="vazio">Nenhum item.</td></tr>';
+    document.getElementById("total").textContent = dinheiro(0);
+    return;
+  }
+  corpo.innerHTML = itens.map((i, idx) => `
+    <tr>
+      <td>${escapeHtml(i.descricao)}</td>
+      <td>${i.quantidade}</td>
+      <td>${dinheiro(i.preco_unitario)}</td>
+      <td>${dinheiro(i.total)}</td>
+      <td class="acoes"><button class="btn mini perigo" onclick="itens.splice(${idx},1); desenhar()">Remover</button></td>
+    </tr>`).join("");
+  const total = itens.reduce((s, i) => s + i.total, 0);
+  document.getElementById("total").textContent = dinheiro(total);
+}
+
+async function emitir() {
+  if (!itens.length) return toast("Adicione ao menos um item.", "erro");
+  const clienteId = parseInt(document.getElementById("cliente").value || "0") || null;
+  try {
+    const nota = await api("/api/notas", {
+      method: "POST",
+      body: {
+        modelo: 65,
+        cliente_id: clienteId,
+        consumidor_cpf: document.getElementById("cpf").value,
+        forma_pagamento: document.getElementById("forma").value,
+        itens: itens.map((i) => ({ produto_id: i.produto_id, quantidade: i.quantidade, preco_unitario: i.preco_unitario })),
+        emitir_agora: true,
+      },
+    });
+    await api("/api/notas/processar-fila", { method: "POST" });
+    toast(`NFC-e nº ${nota.numero} enviada para emissão.`, "ok");
+    setTimeout(() => (location.href = `/notas/${nota.id}`), 700);
+  } catch (erro) {
+    toast(erro.message, "erro");
+  }
+}
+
+iniciar();
+</script>
+{% endblock %}
