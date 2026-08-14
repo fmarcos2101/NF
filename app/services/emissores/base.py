@@ -39,3 +39,16 @@ class EmissorBase(ABC):
     @abstractmethod
     def carta_correcao(self, nota: Nota, texto: str) -> ResultadoEvento:
         """Registra carta de correção. Levanta ErroComunicacao em falha de rede."""
+
+    @abstractmethod
+    def inutilizar(
+        self,
+        emitente: dict[str, str],
+        modelo: int,
+        serie: int,
+        ano: int,
+        numero_inicial: int,
+        numero_final: int,
+        justificativa: str,
+    ) -> ResultadoEvento:
+        """Inutiliza uma faixa de numeração. Levanta ErroComunicacao em falha de rede."""

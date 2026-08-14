@@ -140,3 +140,37 @@ class EmissorSimulado(EmissorBase):
                 f"</procEventoNFe>\n"
             ),
         )
+
+    def inutilizar(
+        self,
+        emitente: dict[str, str],
+        modelo: int,
+        serie: int,
+        ano: int,
+        numero_inicial: int,
+        numero_final: int,
+        justificativa: str,
+    ) -> ResultadoEvento:
+        cnpj = "".join(c for c in emitente.get("emitente_cnpj", "") if c.isdigit())
+        if not emitente.get("emitente_razao_social") or not cnpj:
+            return ResultadoEvento(
+                autorizado=False,
+                motivo="Preencha a razão social e o CNPJ do emitente em Configurações.",
+            )
+        return ResultadoEvento(
+            autorizado=True,
+            protocolo=f"INUT{datetime.now():%Y%m%d%H%M%S}",
+            xml=(
+                f'<?xml version="1.0" encoding="UTF-8"?>\n'
+                f"<!-- INUTILIZAÇÃO SIMULADA - SEM VALIDADE FISCAL -->\n"
+                f"<procInutNFe>\n"
+                f"  <CNPJ>{cnpj}</CNPJ>\n"
+                f"  <mod>{modelo}</mod>\n"
+                f"  <serie>{serie}</serie>\n"
+                f"  <ano>{ano}</ano>\n"
+                f"  <nNFIni>{numero_inicial}</nNFIni>\n"
+                f"  <nNFFin>{numero_final}</nNFFin>\n"
+                f"  <xJust>{escape(justificativa)}</xJust>\n"
+                f"</procInutNFe>\n"
+            ),
+        )

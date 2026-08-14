@@ -234,3 +234,62 @@ class EmissorFocusNFe(EmissorBase):
             autorizado=False,
             motivo=dados.get("mensagem_sefaz") or dados.get("mensagem") or f"Status: {status or resposta.status_code}",
         )
+
+    def inutilizar(
+        self,
+        emitente: dict[str, str],
+        modelo: int,
+        serie: int,
+        ano: int,
+        numero_inicial: int,
+        numero_final: int,
+        justificativa: str,
+    ) -> ResultadoEvento:
+        if not self.token:
+            return ResultadoEvento(
+                autorizado=False,
+                motivo="Token da Focus NFe não configurado (Configurações).",
+            )
+        recurso = "nfce" if modelo == 65 else "nfe"
+        cnpj = "".join(c for c in emitente.get("emitente_cnpj", "") if c.isdigit())
+        try:
+            resposta = httpx.post(
+                f"{self.base_url}/v2/{recurso}/inutilizacao",
+                json={
+                    "cnpj": cnpj,
+                    "ano": ano,
+                    "serie": str(serie),
+                    "numero_inicial": str(numero_inicial),
+                    "numero_final": str(numero_final),
+                    "justificativa": justificativa,
+                },
+                auth=(self.token, ""),
+                timeout=30,
+            )
+        except httpx.HTTPError as exc:
+            raise ErroComunicacao(str(exc)) from exc
+        if resposta.status_code >= 500:
+            raise ErroComunicacao(f"Focus NFe indisponível ({resposta.status_code})")
+        dados = resposta.json() if resposta.content else {}
+        status = dados.get("status", "")
+        if resposta.status_code < 400 and status not in ("erro_autorizacao", "erro"):
+            xml = ""
+            caminho_xml = dados.get("caminho_xml") or dados.get("caminho_xml_inutilizacao") or ""
+            if caminho_xml:
+                try:
+                    xml = httpx.get(
+                        f"{self.base_url}{caminho_xml}",
+                        auth=(self.token, ""),
+                        timeout=30,
+                    ).text
+                except httpx.HTTPError:
+                    pass
+            return ResultadoEvento(
+                autorizado=True,
+                protocolo=str(dados.get("numero_protocolo") or dados.get("protocolo") or ""),
+                xml=xml,
+            )
+        return ResultadoEvento(
+            autorizado=False,
+            motivo=dados.get("mensagem_sefaz") or dados.get("mensagem") or f"Status: {status or resposta.status_code}",
+        )

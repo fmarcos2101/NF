@@ -119,4 +119,42 @@ class EventoOut(BaseModel):
     processado_em: datetime | None
 
 
+class InutilizacaoIn(BaseModel):
+    modelo: int = 55
+    serie: int = 1
+    numero_inicial: int = Field(ge=1)
+    numero_final: int = Field(ge=1)
+    justificativa: str = Field(min_length=15, max_length=255)
+    ano: int | None = None
+
+
+class InutilizacaoOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    modelo: int
+    serie: int
+    ano: int
+    numero_inicial: int
+    numero_final: int
+    justificativa: str
+    status: str
+    protocolo: str
+    xml_path: str = ""
+    tentativas: int
+    ultimo_erro: str
+    motivo_rejeicao: str
+    criado_em: datetime
+    processada_em: datetime | None
+
+
+class LoginIn(BaseModel):
+    usuario: str
+    senha: str
+
+
+class SenhaIn(BaseModel):
+    nova: str = Field(min_length=6)
+    atual: str = ""
+
+
 NotaOut.model_rebuild()

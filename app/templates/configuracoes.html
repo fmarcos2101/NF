@@ -71,6 +71,43 @@
     </div>
   </div>
 
+  <div class="painel">
+    <h2>Acesso ao painel</h2>
+    <div class="form-grid">
+      <div class="c4"><label>Usuário</label><input name="auth_usuario"></div>
+      <div class="c4"><label>Senha atual</label><input name="auth_senha_atual" type="password" autocomplete="current-password"></div>
+      <div class="c4"><label>Nova senha</label><input name="auth_senha_nova" type="password" autocomplete="new-password"></div>
+      <div class="c12 texto-muted">
+        Enquanto a senha estiver vazia, o painel abre sem login (útil no computador da empresa).
+        Defina uma senha (mínimo 6 caracteres) para proteger o acesso na rede local.
+      </div>
+    </div>
+  </div>
+
+  <div class="painel">
+    <h2>Impressora térmica (ESC/POS)</h2>
+    <div class="form-grid">
+      <div class="c8"><label>Host / IP</label><input name="impressora_host" placeholder="192.168.0.50"></div>
+      <div class="c4"><label>Porta</label><input name="impressora_porta" placeholder="9100"></div>
+      <div class="c12 texto-muted">
+        Envia o cupom direto na porta 9100 (Epson e compatíveis). Sem host, dá para baixar o arquivo
+        <code>.bin</code> na tela da nota.
+      </div>
+    </div>
+  </div>
+
+  <div class="painel">
+    <h2>WhatsApp Cloud API (envio automático)</h2>
+    <div class="form-grid">
+      <div class="c8"><label>Token</label><input name="whatsapp_token" type="password"></div>
+      <div class="c4"><label>Phone number ID</label><input name="whatsapp_phone_id"></div>
+      <div class="c12 texto-muted">
+        Com token e ID preenchidos, o aviso de emissão, cancelamento e carta de correção é enviado
+        sozinho ao WhatsApp do cliente. Sem isso, o botão continua abrindo o <code>wa.me</code>.
+      </div>
+    </div>
+  </div>
+
   <div class="barra-acoes">
     <div class="espaco"></div>
     <button type="submit" class="btn">Salvar configurações</button>
@@ -114,6 +151,8 @@ form.addEventListener("submit", async (ev) => {
   try {
     await api("/api/configuracoes", { method: "PUT", body: dados });
     toast("Configurações salvas.", "ok");
+    if (form.elements.auth_senha_atual) form.elements.auth_senha_atual.value = "";
+    if (form.elements.auth_senha_nova) form.elements.auth_senha_nova.value = "";
   } catch (erro) {
     toast(erro.message, "erro");
   }

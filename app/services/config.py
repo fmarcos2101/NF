@@ -33,6 +33,15 @@ PADROES = {
     "nfce_serie": "1",
     "nfce_proximo_numero": "1",
     "backup_intervalo_horas": "24",
+    # Acesso
+    "auth_usuario": "admin",
+    "auth_senha_hash": "",
+    # Impressora térmica (ESC/POS, porta 9100 em geral)
+    "impressora_host": "",
+    "impressora_porta": "9100",
+    # WhatsApp Cloud API (envio automático)
+    "whatsapp_token": "",
+    "whatsapp_phone_id": "",
 }
 
 

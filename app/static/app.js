@@ -6,6 +6,10 @@ async function api(url, opcoes = {}) {
     config.body = JSON.stringify(config.body);
   }
   const resposta = await fetch(url, config);
+  if (resposta.status === 401 && !location.pathname.startsWith("/login")) {
+    location.href = "/login";
+    throw new Error("Não autenticado.");
+  }
   if (!resposta.ok) {
     let detalhe = `Erro ${resposta.status}`;
     try {
@@ -65,15 +69,26 @@ async function atualizarStatus() {
     const s = await api("/api/status");
     const pendentes = (s.notas.pendente || 0) + (s.notas.processando || 0);
     const eventos = s.eventos_pendentes || 0;
+    const inuts = s.inutilizacoes_pendentes || 0;
     caixa.innerHTML = `
       <div><span class="status-dot ${s.online ? "online" : "offline"}"></span>
         ${s.online ? "On-line" : "Off-line"}</div>
       <div>${pendentes} nota(s) na fila</div>
       ${eventos ? `<div>${eventos} evento(s) na fila</div>` : ""}
+      ${inuts ? `<div>${inuts} inutilização(ões) na fila</div>` : ""}
       <div class="texto-muted">${s.provedor === "focus_nfe" ? "Focus NFe" : "Emissor simulado"}
         · ${s.ambiente === "producao" ? "produção" : "homologação"}</div>`;
+    const btnSair = document.getElementById("btn-sair");
+    if (btnSair) btnSair.style.display = s.auth_ativa ? "" : "none";
     document.dispatchEvent(new CustomEvent("status", { detail: s }));
   } catch (_) {
     caixa.innerHTML = '<div><span class="status-dot offline"></span>Servidor indisponível</div>';
   }
+}
+
+async function sair() {
+  try {
+    await api("/api/logout", { method: "POST" });
+  } catch (_) { /* sessão já inválida */ }
+  location.href = "/login";
 }

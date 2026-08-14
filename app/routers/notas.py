@@ -2,7 +2,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
@@ -19,9 +19,11 @@ from ..models import (
 )
 from ..schemas import EventoIn, EventoOut, NotaIn, NotaOut
 from ..services import config as cfg
+from ..services.documentos import validar_cpf_cnpj
 from ..services.email_sender import enviar_nota_por_email
+from ..services.escpos import enviar_impressora, montar_cupom
 from ..services.fila import esta_online, processar_fila
-from ..services.whatsapp import montar_link
+from ..services.whatsapp import enviar_cloud, montar_link
 
 router = APIRouter(prefix="/api/notas", tags=["notas"])
 
@@ -113,9 +115,10 @@ def processar_fila_agora():
     """Força uma passada na fila (o worker também roda sozinho a cada 10s)."""
     resultado = processar_fila()
     return {
-        "processadas": resultado["notas"] + resultado["eventos"],
+        "processadas": resultado["notas"] + resultado["eventos"] + resultado.get("inutilizacoes", 0),
         "notas": resultado["notas"],
         "eventos": resultado["eventos"],
+        "inutilizacoes": resultado.get("inutilizacoes", 0),
         "online": esta_online(),
     }
 
@@ -138,6 +141,10 @@ def criar(dados: NotaIn, db: Session = Depends(get_db)):
             cliente = _consumidor_avulso(db)
 
     serie_chave = "nfce_serie" if modelo == 65 else "nota_serie"
+    try:
+        consumidor_cpf = validar_cpf_cnpj(dados.consumidor_cpf)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     nota = Nota(
         cliente_id=cliente.id,
         serie=int(cfg.obter(db, serie_chave) or "1"),
@@ -146,7 +153,7 @@ def criar(dados: NotaIn, db: Session = Depends(get_db)):
         observacoes=dados.observacoes,
         status=StatusNota.PENDENTE if dados.emitir_agora else StatusNota.RASCUNHO,
         modelo=modelo,
-        consumidor_cpf="".join(c for c in dados.consumidor_cpf if c.isdigit()),
+        consumidor_cpf=consumidor_cpf,
         forma_pagamento=dados.forma_pagamento or "01",
     )
     total = _montar_itens(db, nota, dados.itens)
@@ -322,3 +329,49 @@ def link_whatsapp(nota_id: int, tipo: str = "emissao", db: Session = Depends(get
     if tipo == "carta" and nota.status != StatusNota.AUTORIZADA:
         raise HTTPException(409, "Somente notas autorizadas têm carta de correção.")
     return montar_link(nota, cfg.obter_todas(db), tipo=tipo)
+
+
+@router.post("/{nota_id}/whatsapp")
+def enviar_whatsapp(nota_id: int, tipo: str = "emissao", db: Session = Depends(get_db)):
+    nota = _buscar_nota(db, nota_id)
+    if tipo not in ("emissao", "cancelamento", "carta"):
+        raise HTTPException(400, "Tipo inválido. Use emissao, cancelamento ou carta.")
+    resultado = enviar_cloud(nota, cfg.obter_todas(db), tipo=tipo)
+    if not resultado["enviado"]:
+        raise HTTPException(502, resultado["motivo"] or "Falha no envio pelo WhatsApp Cloud.")
+    return resultado
+
+
+@router.get("/{nota_id}/escpos")
+def baixar_escpos(nota_id: int, db: Session = Depends(get_db)):
+    nota = _buscar_nota(db, nota_id)
+    if nota.status not in (StatusNota.AUTORIZADA, StatusNota.CANCELADA):
+        raise HTTPException(409, "Somente notas autorizadas ou canceladas podem ser impressas.")
+    dados = montar_cupom(nota, cfg.obter_todas(db))
+    nome = f"{'NFCe' if nota.modelo == 65 else 'NF'}-{nota.numero:09d}.bin"
+    return Response(
+        content=dados,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'},
+    )
+
+
+@router.post("/{nota_id}/imprimir")
+def imprimir_termica(nota_id: int, db: Session = Depends(get_db)):
+    nota = _buscar_nota(db, nota_id)
+    if nota.status not in (StatusNota.AUTORIZADA, StatusNota.CANCELADA):
+        raise HTTPException(409, "Somente notas autorizadas ou canceladas podem ser impressas.")
+    emitente = cfg.obter_todas(db)
+    host = (emitente.get("impressora_host") or "").strip()
+    if not host:
+        raise HTTPException(400, "Configure o host da impressora térmica em Configurações.")
+    try:
+        porta = int(emitente.get("impressora_porta") or "9100")
+    except ValueError:
+        porta = 9100
+    dados = montar_cupom(nota, emitente)
+    try:
+        enviar_impressora(dados, host, porta)
+    except OSError as exc:
+        raise HTTPException(502, f"Falha ao enviar para a impressora: {exc}") from exc
+    return {"ok": True}

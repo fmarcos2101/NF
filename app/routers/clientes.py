@@ -4,8 +4,19 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import Cliente, Nota
 from ..schemas import ClienteIn, ClienteOut
+from ..services.documentos import validar_cpf_cnpj
 
 router = APIRouter(prefix="/api/clientes", tags=["clientes"])
+
+
+def _dados_cliente(dados: ClienteIn) -> dict:
+    valores = dados.model_dump()
+    try:
+        valores["cpf_cnpj"] = validar_cpf_cnpj(valores.get("cpf_cnpj") or "")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    valores["uf"] = (valores.get("uf") or "").upper()
+    return valores
 
 
 @router.get("", response_model=list[ClienteOut])
@@ -21,7 +32,7 @@ def listar(busca: str = "", db: Session = Depends(get_db)):
 
 @router.post("", response_model=ClienteOut, status_code=201)
 def criar(dados: ClienteIn, db: Session = Depends(get_db)):
-    cliente = Cliente(**dados.model_dump())
+    cliente = Cliente(**_dados_cliente(dados))
     db.add(cliente)
     db.commit()
     return cliente
@@ -32,7 +43,7 @@ def atualizar(cliente_id: int, dados: ClienteIn, db: Session = Depends(get_db)):
     cliente = db.get(Cliente, cliente_id)
     if cliente is None:
         raise HTTPException(404, "Cliente não encontrado")
-    for campo, valor in dados.model_dump().items():
+    for campo, valor in _dados_cliente(dados).items():
         setattr(cliente, campo, valor)
     db.commit()
     return cliente

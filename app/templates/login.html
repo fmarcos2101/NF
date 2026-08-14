@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Entrar — Sistema NF</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="login">
+  <form class="login-box" id="form">
+    <div class="logo">NF<span>Sistema de Notas Fiscais</span></div>
+    <h1>Entrar</h1>
+    <p class="texto-muted">Acesso ao painel local.</p>
+    <label>Usuário</label>
+    <input name="usuario" value="admin" required autofocus>
+    <label>Senha</label>
+    <input name="senha" type="password" required>
+    <button type="submit" class="btn" style="width:100%;margin-top:12px">Entrar</button>
+    <p id="erro" class="aviso erro" style="display:none;margin-top:14px"></p>
+  </form>
+  <script>
+    document.getElementById("form").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const erro = document.getElementById("erro");
+      erro.style.display = "none";
+      const dados = Object.fromEntries(new FormData(ev.target));
+      try {
+        const resp = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(dados),
+        });
+        if (!resp.ok) {
+          const corpo = await resp.json().catch(() => ({}));
+          throw new Error(corpo.detail || "Usuário ou senha inválidos.");
+        }
+        location.href = "/";
+      } catch (e) {
+        erro.textContent = e.message;
+        erro.style.display = "block";
+      }
+    });
+  </script>
+</body>
+</html>

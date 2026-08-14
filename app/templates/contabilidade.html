@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+<div class="painel">
+  <h2>XML do mês para o contador</h2>
+  <p class="texto-muted">
+    Gera um ZIP com os XMLs autorizados no mês, mais cancelamentos, cartas de correção
+    e inutilizações processados no período.
+  </p>
+  <div class="form-grid">
+    <div class="c4"><label>Ano</label><input id="xml-ano" type="number" min="2000" max="2100"></div>
+    <div class="c4"><label>Mês</label><input id="xml-mes" type="number" min="1" max="12"></div>
+    <div class="c4" style="display:flex;align-items:flex-end">
+      <button type="button" class="btn" onclick="baixarXml()">Baixar ZIP</button>
+    </div>
+  </div>
+</div>
+
+<div class="painel">
+  <h2>Inutilizar numeração</h2>
+  <p class="texto-muted">
+    Use quando um número da série foi pulado (falha de sistema, rascunho descartado após
+    avançar o sequencial, etc.). A justificativa precisa ter no mínimo 15 caracteres.
+    Sem internet, o pedido fica na fila.
+  </p>
+  <form id="form-inut">
+    <div class="form-grid">
+      <div class="c4">
+        <label>Modelo</label>
+        <select name="modelo">
+          <option value="55">NF-e (55)</option>
+          <option value="65">NFC-e (65)</option>
+        </select>
+      </div>
+      <div class="c4"><label>Série</label><input name="serie" type="number" min="1" value="1" required></div>
+      <div class="c4"><label>Ano</label><input name="ano" type="number" min="2000" max="2100" required></div>
+      <div class="c4"><label>Número inicial</label><input name="numero_inicial" type="number" min="1" required></div>
+      <div class="c4"><label>Número final</label><input name="numero_final" type="number" min="1" required></div>
+      <div class="c12"><label>Justificativa *</label><textarea name="justificativa" rows="3" required minlength="15" maxlength="255"></textarea></div>
+    </div>
+    <div class="barra-acoes" style="margin-top:12px">
+      <div class="espaco"></div>
+      <button type="submit" class="btn">Enfileirar inutilização</button>
+    </div>
+  </form>
+</div>
+
+<div class="painel">
+  <h2>Inutilizações</h2>
+  <table>
+    <thead>
+      <tr><th>Modelo</th><th>Série</th><th>Faixa</th><th>Ano</th><th>Status</th><th>Protocolo</th><th></th></tr>
+    </thead>
+    <tbody id="tabela-inut">
+      <tr><td colspan="7" class="vazio">Carregando...</td></tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const agora = new Date();
+document.getElementById("xml-ano").value = agora.getFullYear();
+document.getElementById("xml-mes").value = agora.getMonth() + 1;
+document.querySelector("#form-inut [name=ano]").value = agora.getFullYear();
+
+function baixarXml() {
+  const ano = document.getElementById("xml-ano").value;
+  const mes = document.getElementById("xml-mes").value;
+  location.href = `/api/contabilidade/xml?ano=${ano}&mes=${mes}`;
+}
+
+document.getElementById("form-inut").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const fd = new FormData(ev.target);
+  const dados = {
+    modelo: Number(fd.get("modelo")),
+    serie: Number(fd.get("serie")),
+    ano: Number(fd.get("ano")),
+    numero_inicial: Number(fd.get("numero_inicial")),
+    numero_final: Number(fd.get("numero_final")),
+    justificativa: (fd.get("justificativa") || "").trim(),
+  };
+  try {
+    await api("/api/inutilizacoes", { method: "POST", body: dados });
+    await api("/api/notas/processar-fila", { method: "POST" });
+    toast("Inutilização enviada à fila.", "ok");
+    ev.target.reset();
+    document.querySelector("#form-inut [name=ano]").value = agora.getFullYear();
+    document.querySelector("#form-inut [name=serie]").value = 1;
+    carregar();
+  } catch (erro) {
+    toast(erro.message, "erro");
+  }
+});
+
+async function carregar() {
+  const lista = await api("/api/inutilizacoes");
+  const corpo = document.getElementById("tabela-inut");
+  if (!lista.length) {
+    corpo.innerHTML = '<tr><td colspan="7" class="vazio">Nenhuma inutilização ainda.</td></tr>';
+    return;
+  }
+  corpo.innerHTML = lista.map((i) => `
+    <tr>
+      <td>${i.modelo === 65 ? "NFC-e" : "NF-e"}</td>
+      <td>${i.serie}</td>
+      <td>${i.numero_inicial}–${i.numero_final}</td>
+      <td>${i.ano}</td>
+      <td><span class="badge ${i.status === "AUTORIZADA" ? "AUTORIZADA" : i.status === "REJEITADA" ? "REJEITADA" : i.status}">${i.status}</span></td>
+      <td>${escapeHtml(i.protocolo) || "-"}</td>
+      <td class="acoes">
+        ${i.xml_path ? `<a class="btn mini secundario" href="/api/inutilizacoes/${i.id}/xml">XML</a>` : ""}
+        ${i.motivo_rejeicao ? `<div class="texto-muted">${escapeHtml(i.motivo_rejeicao)}</div>` : ""}
+      </td>
+    </tr>`).join("");
+}
+
+carregar();
+setInterval(carregar, 10000);
+</script>
+{% endblock %}

@@ -81,6 +81,8 @@ async function carregar() {
   if (notaAtual.status === "AUTORIZADA" || notaAtual.status === "CANCELADA") {
     acoes.push(`<a class="btn mini secundario" href="/api/notas/${notaAtual.id}/danfe" target="_blank">PDF</a>`);
     acoes.push(`<a class="btn mini secundario" href="/api/notas/${notaAtual.id}/xml" target="_blank">XML</a>`);
+    acoes.push(`<a class="btn mini secundario" href="/api/notas/${notaAtual.id}/escpos">ESC/POS</a>`);
+    acoes.push(`<button class="btn mini secundario" onclick="imprimirTermica()">Imprimir</button>`);
     acoes.push(`<button class="btn mini secundario" onclick="enviarEmail()">E-mail</button>`);
     acoes.push(`<button class="btn mini secundario" onclick="abrirWhats()">WhatsApp</button>`);
   }
@@ -225,6 +227,13 @@ async function abrirWhats(tipo = "emissao") {
     if (dados.link) { botao.href = dados.link; botao.style.display = ""; }
     else { botao.style.display = "none"; }
     modalWhats.showModal();
+  } catch (erro) { toast(erro.message, "erro"); }
+}
+
+async function imprimirTermica() {
+  try {
+    await api(`/api/notas/${NOTA_ID}/imprimir`, { method: "POST" });
+    toast("Cupom enviado à impressora.", "ok");
   } catch (erro) { toast(erro.message, "erro"); }
 }
 

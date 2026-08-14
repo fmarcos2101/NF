@@ -1,7 +1,7 @@
 # NF — Sistema de emissão de notas fiscais
 
-Sistema local (offline-first) para emissão de NF-e com despacho automático por
-e-mail e envio assistido por WhatsApp.
+Sistema local (offline-first) para emissão de NF-e e NFC-e com despacho por
+e-mail e WhatsApp.
 
 ## Como funciona
 
@@ -11,19 +11,21 @@ e-mail e envio assistido por WhatsApp.
 - **Fila off-line**: ao emitir uma nota sem conexão, ela entra na fila com
   status `PENDENTE`. Um worker verifica a conectividade a cada 10 segundos e,
   quando a internet volta, transmite as notas na ordem em que foram criadas.
+  Cancelamento, carta de correção e inutilização de numeração usam a mesma fila.
 - **Emissão por provedor**: a comunicação com a SEFAZ é feita por uma API de
   emissão (Focus NFe), que cuida do certificado digital A1, assinatura do XML e
   contingência. Há também um **modo simulado** para testar todo o fluxo sem
   certificado ou credenciais (gera chave de acesso e DANFE sem validade fiscal).
-- **Despacho automático**: quando a nota é autorizada, o sistema gera o DANFE
-  (PDF), salva o XML e envia os dois por e-mail (SMTP) para o cliente.
-- **WhatsApp sem API**: o sistema gera um link `wa.me` com a mensagem pronta
-  (emissão, cancelamento ou carta de correção); basta clicar, anexar o PDF e
-  enviar. A camada é isolada, então dá para trocar depois por envio automático
-  via WhatsApp Business API sem mexer no resto.
+- **Despacho**: quando a nota é autorizada, o sistema gera o DANFE (PDF), salva
+  o XML e envia os dois por e-mail (SMTP). O WhatsApp pode ser assistido
+  (`wa.me`) ou automático (Cloud API, se o token estiver em Configurações).
 - **NFC-e (modelo 65)**: venda no balcão, consumidor opcional, forma de
-  pagamento e cupom térmico 80 mm com QR Code. NFC-e não admite carta de
-  correção — cancele e emita outra.
+  pagamento, cupom térmico 80 mm com QR Code e envio ESC/POS para impressora
+  de rede. NFC-e não admite carta de correção — cancele e emita outra.
+- **Contabilidade**: ZIP com os XMLs do mês (notas, eventos e inutilizações)
+  e inutilização de faixas puladas da série.
+- **Acesso**: senha opcional (um usuário). Enquanto estiver vazia, o painel
+  abre sem login.
 
 ## Executando
 
@@ -34,24 +36,25 @@ uvicorn app.main:app --port 8000
 
 Abra http://localhost:8000 no navegador.
 
-Para conferir o fluxo de eventos e o backup:
-
 ```bash
-PYTHONPATH=. python3 -m unittest tests.test_eventos tests.test_nfce -v
+PYTHONPATH=. python3 -m unittest tests.test_eventos tests.test_nfce tests.test_documentos tests.test_producao -v
 ```
 
 ### Primeiros passos
 
 1. Em **Configurações**, preencha os dados do emitente (razão social e CNPJ são
-   obrigatórios). Opcionalmente configure o SMTP para envio automático por
-   e-mail.
+   obrigatórios para emitir). O CNPJ/CPF é validado no cadastro. Opcionalmente
+   configure SMTP, senha de acesso, impressora térmica e WhatsApp Cloud API.
 2. Cadastre **clientes** (com e-mail e WhatsApp para o despacho) e **produtos**
    (descrição, NCM, CFOP, unidade e preço).
 3. Em **Nova nota**, escolha o cliente, adicione os itens e clique em
    **Emitir nota**. Sem internet, a nota fica na fila e é transmitida sozinha
    quando a conexão voltar.
 4. Para venda no caixa, use **NFC-e (balcão)**: produtos, pagamento e CPF
-   opcional. O PDF do cupom abre em 80 mm para imprimir.
+   opcional. O PDF do cupom abre em 80 mm; com o IP da impressora, use
+   **Imprimir** (ESC/POS).
+5. Em **Contabilidade**, baixe o ZIP do mês para o contador e inutilize
+   números pulados da série.
 
 ### Emissão real (Focus NFe)
 
@@ -64,16 +67,20 @@ PYTHONPATH=. python3 -m unittest tests.test_eventos tests.test_nfce -v
 
 ```
 app/
-  main.py                  # aplicação FastAPI + páginas
+  main.py                  # aplicação FastAPI + páginas + login
   database.py              # SQLite local (pasta dados/)
-  models.py                # clientes, produtos, notas, itens, configurações
-  routers/                 # API REST (clientes, produtos, notas, configurações)
+  models.py                # clientes, produtos, notas, eventos, inutilizações
+  routers/                 # API REST
   services/
-    fila.py                # worker da fila off-line (notas e eventos)
+    fila.py                # worker da fila off-line (notas, eventos, inutilização)
     backup.py              # backup automático do banco e arquivos
     danfe.py / danfe_nfce.py  # DANFE A4 e cupom NFC-e 80 mm
+    escpos.py              # cupom térmico ESC/POS
     email_sender.py        # envio SMTP com PDF + XML anexos
-    whatsapp.py            # link wa.me com mensagem pronta
+    whatsapp.py            # wa.me e WhatsApp Cloud API
+    documentos.py          # validação de CPF/CNPJ
+    auth.py                # senha local (PBKDF2) e sessão
+    contabilidade.py       # ZIP XML do mês
     emissores/             # provedores de emissão (simulado, Focus NFe)
   templates/ + static/     # interface web local (sem CDN, funciona off-line)
 dados/                     # criado em runtime: nf.db, PDFs/XMLs e backups
@@ -92,18 +99,7 @@ Na nota autorizada você pode:
 - **Cancelar**, com justificativa de no mínimo 15 caracteres. Sem internet, o pedido fica na fila. Ao autorizar, abre o WhatsApp com a mensagem de cancelamento (se o cliente tiver número).
 - **Emitir carta de correção (CC-e)** na NF-e (não vale para NFC-e). Também gera link de WhatsApp com o texto da correção.
 - **Duplicar** como rascunho para repetir uma venda.
-
-## O que ainda falta (opcional, para produção)
-
-O ciclo operacional está fechado: emitir NF-e/NFC-e, fila off-line, cancelar, CC-e, e-mail, WhatsApp assistido e backup.
-
-Restam **5 passos** se quiser deixar o sistema mais redondo no dia a dia:
-
-1. **Pacote XML do mês para o contador** (ZIP com as notas do período).
-2. **Inutilização de numeração** (quando um número da série é pulado).
-3. **Validação de CPF/CNPJ** no cadastro.
-4. **Login simples** para proteger o painel na rede local.
-5. **Impressão térmica direta (ESC/POS)** e/ou **WhatsApp Business API** (envio sem clicar). O cupom 80 mm já imprime pelo PDF; o `wa.me` já cobre o aviso manual.
+- **Imprimir** o cupom ESC/POS (rede, porta 9100) ou baixar o arquivo `.bin`.
 
 ## Backup automático
 

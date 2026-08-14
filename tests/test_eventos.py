@@ -20,7 +20,7 @@ class FluxoEventos(unittest.TestCase):
         cls.client = cls._ctx.__enter__()
         cls.client.put("/api/configuracoes", json={
             "emitente_razao_social": "Empresa Teste LTDA",
-            "emitente_cnpj": "12345678000199",
+            "emitente_cnpj": "12345678000195",
             "emitente_uf": "SP",
         })
         cls.client.post("/api/clientes", json={

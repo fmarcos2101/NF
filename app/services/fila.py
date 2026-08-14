@@ -14,9 +14,11 @@ import httpx
 
 from ..database import ARQUIVOS_DIR, SessionLocal
 from ..models import (
+    Inutilizacao,
     Nota,
     NotaEvento,
     StatusEvento,
+    StatusInutilizacao,
     StatusNota,
     TipoEvento,
 )
@@ -26,6 +28,7 @@ from .danfe import gerar_documento
 from .email_sender import enviar_cancelamento_por_email, enviar_nota_por_email, smtp_configurado
 from .emissores import obter_emissor
 from .emissores.base import ErroComunicacao
+from .whatsapp import tentar_enviar_cloud
 
 log = logging.getLogger("nf.fila")
 
@@ -87,6 +90,8 @@ def _finalizar_autorizacao(db, nota: Nota, resultado, emitente: dict[str, str]) 
             log.warning("Falha ao enviar e-mail da nota %s: %s", nota.id, exc)
             nota.ultimo_erro = f"E-mail: {exc}"
         db.commit()
+
+    tentar_enviar_cloud(nota, emitente, tipo="emissao")
 
 
 def processar_nota(db, nota: Nota) -> None:
@@ -186,13 +191,69 @@ def processar_evento(db, evento: NotaEvento) -> None:
                 enviar_cancelamento_por_email(nota, emitente)
             except Exception as exc:
                 log.warning("Falha ao enviar e-mail de cancelamento da nota %s: %s", nota.id, exc)
+        tentar_enviar_cloud(nota, emitente, tipo="cancelamento")
+    else:
+        tentar_enviar_cloud(nota, emitente, tipo="carta")
 
     db.commit()
     log.info("Evento %s (%s) autorizado na nota %s", evento.id, evento.tipo.value, nota.id)
 
 
+def processar_inutilizacao(db, item: Inutilizacao) -> None:
+    emitente = cfg.obter_todas(db)
+    emissor = obter_emissor(db)
+
+    item.status = StatusInutilizacao.PROCESSANDO
+    item.tentativas += 1
+    db.commit()
+
+    try:
+        resultado = emissor.inutilizar(
+            emitente,
+            item.modelo,
+            item.serie,
+            item.ano,
+            item.numero_inicial,
+            item.numero_final,
+            item.justificativa,
+        )
+    except ErroComunicacao as exc:
+        item.status = StatusInutilizacao.PENDENTE
+        item.ultimo_erro = str(exc)
+        db.commit()
+        log.info("Inutilização %s voltou à fila: %s", item.id, exc)
+        return
+    except Exception as exc:
+        item.status = StatusInutilizacao.PENDENTE
+        item.ultimo_erro = f"Erro inesperado: {exc}"
+        db.commit()
+        log.exception("Erro inesperado na inutilização %s", item.id)
+        return
+
+    if not resultado.autorizado:
+        item.status = StatusInutilizacao.REJEITADA
+        item.motivo_rejeicao = resultado.motivo
+        db.commit()
+        log.info("Inutilização %s rejeitada: %s", item.id, resultado.motivo)
+        return
+
+    item.status = StatusInutilizacao.AUTORIZADA
+    item.protocolo = resultado.protocolo
+    item.processada_em = datetime.now()
+    item.ultimo_erro = ""
+    if resultado.xml:
+        xml_path = ARQUIVOS_DIR / f"inut-{item.id}.xml"
+        xml_path.write_text(resultado.xml, encoding="utf-8")
+        item.xml_path = str(xml_path)
+    db.commit()
+    log.info(
+        "Inutilização %s autorizada (%s-%s série %s)",
+        item.id, item.numero_inicial, item.numero_final, item.serie,
+    )
+
+
 def processar_fila() -> dict[str, int]:
-    """Emite notas e eventos pendentes (se houver internet)."""
+    """Emite notas, eventos e inutilizações pendentes (se houver internet)."""
     db = SessionLocal()
     try:
         notas = (
@@ -207,19 +268,28 @@ def processar_fila() -> dict[str, int]:
             .order_by(NotaEvento.criado_em)
             .all()
         )
-        if not notas and not eventos:
-            return {"notas": 0, "eventos": 0}
+        inutilizacoes = (
+            db.query(Inutilizacao)
+            .filter(Inutilizacao.status == StatusInutilizacao.PENDENTE)
+            .order_by(Inutilizacao.criado_em)
+            .all()
+        )
+        vazio = {"notas": 0, "eventos": 0, "inutilizacoes": 0}
+        if not notas and not eventos and not inutilizacoes:
+            return vazio
         if not esta_online():
             log.debug(
-                "Off-line: %s nota(s) e %s evento(s) na fila",
-                len(notas), len(eventos),
+                "Off-line: %s nota(s), %s evento(s) e %s inutilização(ões) na fila",
+                len(notas), len(eventos), len(inutilizacoes),
             )
-            return {"notas": 0, "eventos": 0}
+            return vazio
         for nota in notas:
             processar_nota(db, nota)
         for evento in eventos:
             processar_evento(db, evento)
-        return {"notas": len(notas), "eventos": len(eventos)}
+        for item in inutilizacoes:
+            processar_inutilizacao(db, item)
+        return {"notas": len(notas), "eventos": len(eventos), "inutilizacoes": len(inutilizacoes)}
     finally:
         db.close()
 

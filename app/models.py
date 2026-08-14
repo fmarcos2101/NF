@@ -160,3 +160,34 @@ class NotaEvento(Base):
     processado_em: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     nota: Mapped["Nota"] = relationship(back_populates="eventos")
+
+
+class StatusInutilizacao(str, enum.Enum):
+    PENDENTE = "PENDENTE"
+    PROCESSANDO = "PROCESSANDO"
+    AUTORIZADA = "AUTORIZADA"
+    REJEITADA = "REJEITADA"
+
+
+class Inutilizacao(Base):
+    """Numeração inutilizada junto à SEFAZ (números pulados da série)."""
+
+    __tablename__ = "inutilizacoes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    modelo: Mapped[int] = mapped_column(Integer, default=55)
+    serie: Mapped[int] = mapped_column(Integer, default=1)
+    ano: Mapped[int] = mapped_column(Integer, default=0)
+    numero_inicial: Mapped[int] = mapped_column(Integer)
+    numero_final: Mapped[int] = mapped_column(Integer)
+    justificativa: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[StatusInutilizacao] = mapped_column(
+        Enum(StatusInutilizacao), default=StatusInutilizacao.PENDENTE
+    )
+    protocolo: Mapped[str] = mapped_column(String(30), default="")
+    xml_path: Mapped[str] = mapped_column(String(255), default="")
+    tentativas: Mapped[int] = mapped_column(Integer, default=0)
+    ultimo_erro: Mapped[str] = mapped_column(Text, default="")
+    motivo_rejeicao: Mapped[str] = mapped_column(Text, default="")
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    processada_em: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
