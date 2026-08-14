@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block conteudo %}
+<form id="form">
+  <div class="painel">
+    <h2>Dados do emitente (sua empresa)</h2>
+    <div class="form-grid">
+      <div class="c8"><label>Razão social *</label><input name="emitente_razao_social"></div>
+      <div class="c4"><label>Nome fantasia</label><input name="emitente_nome_fantasia"></div>
+      <div class="c4"><label>CNPJ *</label><input name="emitente_cnpj" placeholder="Somente números"></div>
+      <div class="c4"><label>Inscrição Estadual</label><input name="emitente_ie"></div>
+      <div class="c4">
+        <label>Regime tributário</label>
+        <select name="emitente_regime">
+          <option value="simples_nacional">Simples Nacional</option>
+          <option value="lucro_presumido">Lucro Presumido</option>
+          <option value="lucro_real">Lucro Real</option>
+        </select>
+      </div>
+      <div class="c8"><label>Logradouro</label><input name="emitente_logradouro"></div>
+      <div class="c4"><label>Número</label><input name="emitente_numero"></div>
+      <div class="c4"><label>Bairro</label><input name="emitente_bairro"></div>
+      <div class="c4"><label>Município</label><input name="emitente_municipio"></div>
+      <div class="c4"><label>UF</label><input name="emitente_uf" maxlength="2"></div>
+      <div class="c4"><label>CEP</label><input name="emitente_cep"></div>
+    </div>
+  </div>
+
+  <div class="painel">
+    <h2>Emissão</h2>
+    <div class="form-grid">
+      <div class="c4">
+        <label>Provedor</label>
+        <select name="emissao_provedor">
+          <option value="simulado">Simulado (testes, sem validade fiscal)</option>
+          <option value="focus_nfe">Focus NFe (emissão real)</option>
+        </select>
+      </div>
+      <div class="c4">
+        <label>Ambiente</label>
+        <select name="emissao_ambiente">
+          <option value="homologacao">Homologação (testes)</option>
+          <option value="producao">Produção</option>
+        </select>
+      </div>
+      <div class="c4"><label>Token Focus NFe</label><input name="focus_nfe_token" type="password"></div>
+      <div class="c4"><label>Série da nota</label><input name="nota_serie" type="number" min="1"></div>
+      <div class="c4"><label>Próximo número</label><input name="nota_proximo_numero" type="number" min="1"></div>
+      <div class="c12 texto-muted">
+        No modo simulado o sistema autoriza a nota localmente para você testar todo o fluxo.
+        Para emitir notas reais, crie uma conta na Focus NFe, envie seu certificado digital A1
+        no painel deles e cole o token acima.
+      </div>
+    </div>
+  </div>
+
+  <div class="painel">
+    <h2>Envio por e-mail (SMTP)</h2>
+    <div class="form-grid">
+      <div class="c8"><label>Servidor SMTP</label><input name="smtp_host" placeholder="smtp.gmail.com"></div>
+      <div class="c4"><label>Porta</label><input name="smtp_porta" placeholder="587"></div>
+      <div class="c4"><label>Usuário</label><input name="smtp_usuario"></div>
+      <div class="c4"><label>Senha</label><input name="smtp_senha" type="password"></div>
+      <div class="c4"><label>Remetente (opcional)</label><input name="smtp_remetente" placeholder="notas@suaempresa.com.br"></div>
+      <div class="c12 texto-muted">
+        Com o SMTP configurado, o PDF e o XML são enviados automaticamente ao e-mail do
+        cliente assim que a nota é autorizada. No Gmail, use uma "senha de app".
+      </div>
+    </div>
+  </div>
+
+  <div class="barra-acoes">
+    <div class="espaco"></div>
+    <button type="submit" class="btn">Salvar configurações</button>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const form = document.getElementById("form");
+
+async function carregar() {
+  const cfg = await api("/api/configuracoes");
+  for (const [chave, valor] of Object.entries(cfg)) {
+    if (form.elements[chave]) form.elements[chave].value = valor;
+  }
+}
+
+form.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const dados = Object.fromEntries(new FormData(form));
+  dados.emitente_uf = (dados.emitente_uf || "").toUpperCase();
+  try {
+    await api("/api/configuracoes", { method: "PUT", body: dados });
+    toast("Configurações salvas.", "ok");
+  } catch (erro) {
+    toast(erro.message, "erro");
+  }
+});
+
+carregar();
+</script>
+{% endblock %}

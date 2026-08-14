@@ -1,0 +1,124 @@
+"""Emissão real de NF-e via API da Focus NFe (https://focusnfe.com.br).
+
+A Focus NFe cuida do certificado digital, assinatura do XML, comunicação
+com a SEFAZ e contingência. O sistema envia um JSON com os dados da nota
+e consulta o resultado. Requer um token de API (Configurações).
+"""
+import httpx
+
+from ...models import Nota
+from .base import EmissorBase, ErroComunicacao, ResultadoEmissao
+
+URLS = {
+    "producao": "https://api.focusnfe.com.br",
+    "homologacao": "https://homologacao.focusnfe.com.br",
+}
+
+
+class EmissorFocusNFe(EmissorBase):
+    def __init__(self, token: str, ambiente: str = "homologacao") -> None:
+        self.token = token
+        self.base_url = URLS.get(ambiente, URLS["homologacao"])
+
+    def _payload(self, nota: Nota, emitente: dict[str, str]) -> dict:
+        cliente = nota.cliente
+        doc_cliente = "".join(c for c in cliente.cpf_cnpj if c.isdigit())
+        payload = {
+            "natureza_operacao": "Venda de mercadoria",
+            "tipo_documento": 1,
+            "finalidade_emissao": 1,
+            "presenca_comprador": 1,
+            "cnpj_emitente": "".join(
+                c for c in emitente.get("emitente_cnpj", "") if c.isdigit()
+            ),
+            "nome_destinatario": cliente.nome,
+            "logradouro_destinatario": cliente.logradouro,
+            "numero_destinatario": cliente.numero,
+            "bairro_destinatario": cliente.bairro,
+            "municipio_destinatario": cliente.municipio,
+            "uf_destinatario": cliente.uf,
+            "cep_destinatario": "".join(c for c in cliente.cep if c.isdigit()),
+            "valor_frete": 0.0,
+            "valor_desconto": nota.desconto,
+            "valor_total": nota.total,
+            "modalidade_frete": 9,
+            "items": [
+                {
+                    "numero_item": i + 1,
+                    "codigo_produto": str(item.produto_id or i + 1),
+                    "descricao": item.descricao,
+                    "codigo_ncm": item.ncm,
+                    "cfop": item.cfop,
+                    "unidade_comercial": item.unidade,
+                    "quantidade_comercial": item.quantidade,
+                    "valor_unitario_comercial": item.preco_unitario,
+                    "valor_unitario_tributavel": item.preco_unitario,
+                    "unidade_tributavel": item.unidade,
+                    "quantidade_tributavel": item.quantidade,
+                    "valor_bruto": item.total,
+                    "icms_situacao_tributaria": "102",
+                    "icms_origem": 0,
+                    "pis_situacao_tributaria": "07",
+                    "cofins_situacao_tributaria": "07",
+                }
+                for i, item in enumerate(nota.itens)
+            ],
+        }
+        if len(doc_cliente) == 11:
+            payload["cpf_destinatario"] = doc_cliente
+        else:
+            payload["cnpj_destinatario"] = doc_cliente
+        return payload
+
+    def emitir(self, nota: Nota, emitente: dict[str, str]) -> ResultadoEmissao:
+        if not self.token:
+            return ResultadoEmissao(
+                autorizada=False,
+                motivo="Token da Focus NFe não configurado (Configurações).",
+            )
+        referencia = f"nota-{nota.id}"
+        try:
+            resposta = httpx.post(
+                f"{self.base_url}/v2/nfe?ref={referencia}",
+                json=self._payload(nota, emitente),
+                auth=(self.token, ""),
+                timeout=30,
+            )
+            # A emissão é assíncrona na Focus; consulta o resultado
+            consulta = httpx.get(
+                f"{self.base_url}/v2/nfe/{referencia}",
+                auth=(self.token, ""),
+                timeout=30,
+            )
+        except httpx.HTTPError as exc:
+            raise ErroComunicacao(str(exc)) from exc
+
+        if resposta.status_code >= 500 or consulta.status_code >= 500:
+            raise ErroComunicacao(f"Focus NFe indisponível ({resposta.status_code})")
+
+        dados = consulta.json()
+        status = dados.get("status", "")
+        if status == "autorizado":
+            xml = ""
+            caminho_xml = dados.get("caminho_xml_nota_fiscal", "")
+            if caminho_xml:
+                try:
+                    xml = httpx.get(
+                        f"{self.base_url}{caminho_xml}",
+                        auth=(self.token, ""),
+                        timeout=30,
+                    ).text
+                except httpx.HTTPError:
+                    pass  # XML pode ser baixado depois; não bloqueia a autorização
+            return ResultadoEmissao(
+                autorizada=True,
+                chave_acesso=dados.get("chave_nfe", "").replace("NFe", ""),
+                protocolo=str(dados.get("numero_protocolo", "")),
+                xml=xml,
+            )
+        if status in ("processando_autorizacao", ""):
+            raise ErroComunicacao("Nota ainda em processamento na SEFAZ; nova tentativa em instantes.")
+        return ResultadoEmissao(
+            autorizada=False,
+            motivo=dados.get("mensagem_sefaz") or dados.get("mensagem") or f"Status: {status}",
+        )

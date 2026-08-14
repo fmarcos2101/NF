@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+
+{% block acoes %}
+<button class="btn" onclick="abrirModal()">+ Novo produto</button>
+{% endblock %}
+
+{% block conteudo %}
+<div class="barra-acoes">
+  <input type="search" id="busca" placeholder="Buscar por descrição ou código...">
+</div>
+
+<div class="painel">
+  <table>
+    <thead>
+      <tr><th>Código</th><th>Descrição</th><th>NCM</th><th>CFOP</th><th>Unid.</th><th>Preço</th><th></th></tr>
+    </thead>
+    <tbody id="tabela">
+      <tr><td colspan="7" class="vazio">Carregando...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<dialog id="modal">
+  <form id="form" method="dialog">
+    <div class="modal-cabecalho">
+      <h3 id="modal-titulo">Novo produto</h3>
+      <button type="button" class="fechar-modal" onclick="modal.close()">×</button>
+    </div>
+    <div class="modal-corpo form-grid">
+      <div class="c4"><label>Código interno</label><input name="codigo"></div>
+      <div class="c8"><label>Descrição *</label><input name="descricao" required></div>
+      <div class="c3">
+        <label>NCM</label>
+        <input name="ncm" maxlength="8" placeholder="8 dígitos" value="00000000">
+      </div>
+      <div class="c3">
+        <label>CFOP</label>
+        <input name="cfop" maxlength="4" value="5102">
+      </div>
+      <div class="c3">
+        <label>CSOSN</label>
+        <input name="csosn" maxlength="4" value="102">
+      </div>
+      <div class="c3">
+        <label>Unidade</label>
+        <input name="unidade" maxlength="6" value="UN">
+      </div>
+      <div class="c4"><label>Preço (R$)</label><input name="preco" type="number" step="0.01" min="0" value="0"></div>
+      <div class="c12 texto-muted">
+        NCM é a classificação fiscal da mercadoria (consulte seu contador ou a tabela NCM).
+        CFOP 5102 = venda dentro do estado; CSOSN 102 = Simples Nacional sem crédito.
+      </div>
+    </div>
+    <div class="modal-rodape">
+      <button type="button" class="btn secundario" onclick="modal.close()">Cancelar</button>
+      <button type="submit" class="btn">Salvar</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const modal = document.getElementById("modal");
+const form = document.getElementById("form");
+let editandoId = null;
+let produtos = [];
+
+async function carregar() {
+  const busca = document.getElementById("busca").value;
+  produtos = await api(`/api/produtos?busca=${encodeURIComponent(busca)}`);
+  const corpo = document.getElementById("tabela");
+  if (!produtos.length) {
+    corpo.innerHTML = '<tr><td colspan="7" class="vazio">Nenhum produto cadastrado.</td></tr>';
+    return;
+  }
+  corpo.innerHTML = produtos.map((p) => `
+    <tr>
+      <td>${escapeHtml(p.codigo) || "-"}</td>
+      <td><strong>${escapeHtml(p.descricao)}</strong></td>
+      <td>${escapeHtml(p.ncm)}</td>
+      <td>${escapeHtml(p.cfop)}</td>
+      <td>${escapeHtml(p.unidade)}</td>
+      <td>${dinheiro(p.preco)}</td>
+      <td class="acoes">
+        <button class="btn mini secundario" onclick="editar(${p.id})">Editar</button>
+        <button class="btn mini perigo" onclick="excluir(${p.id})">Excluir</button>
+      </td>
+    </tr>`).join("");
+}
+
+function abrirModal(produto = null) {
+  editandoId = produto ? produto.id : null;
+  document.getElementById("modal-titulo").textContent =
+    produto ? "Editar produto" : "Novo produto";
+  form.reset();
+  if (produto) {
+    for (const [campo, valor] of Object.entries(produto)) {
+      if (form.elements[campo]) form.elements[campo].value = valor;
+    }
+  }
+  modal.showModal();
+}
+
+function editar(id) {
+  abrirModal(produtos.find((p) => p.id === id));
+}
+
+async function excluir(id) {
+  if (!confirm("Excluir este produto? Se já foi usado em notas, ele será apenas desativado.")) return;
+  try {
+    await api(`/api/produtos/${id}`, { method: "DELETE" });
+    toast("Produto removido.", "ok");
+    carregar();
+  } catch (erro) {
+    toast(erro.message, "erro");
+  }
+}
+
+form.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const dados = Object.fromEntries(new FormData(form));
+  dados.preco = parseFloat(dados.preco || "0");
+  try {
+    if (editandoId) {
+      await api(`/api/produtos/${editandoId}`, { method: "PUT", body: dados });
+    } else {
+      await api("/api/produtos", { method: "POST", body: dados });
+    }
+    toast("Produto salvo.", "ok");
+    modal.close();
+    carregar();
+  } catch (erro) {
+    toast(erro.message, "erro");
+  }
+});
+
+document.getElementById("busca").addEventListener("input", () => carregar());
+carregar();
+</script>
+{% endblock %}

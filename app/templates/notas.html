@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+
+{% block acoes %}
+<a class="btn" href="/notas/nova">+ Nova nota</a>
+{% endblock %}
+
+{% block conteudo %}
+<div class="barra-acoes">
+  <select id="filtro-status" style="max-width:220px">
+    <option value="">Todos os status</option>
+    <option value="AUTORIZADA">Autorizadas</option>
+    <option value="PENDENTE">Pendentes (fila)</option>
+    <option value="PROCESSANDO">Processando</option>
+    <option value="RASCUNHO">Rascunhos</option>
+    <option value="REJEITADA">Rejeitadas</option>
+  </select>
+  <div class="espaco"></div>
+  <button class="btn secundario" onclick="processarFila()">Processar fila agora</button>
+</div>
+
+<div class="painel">
+  <table>
+    <thead>
+      <tr><th>Nº</th><th>Cliente</th><th>Valor</th><th>Status</th><th>Criada</th><th>E-mail</th><th></th></tr>
+    </thead>
+    <tbody id="tabela">
+      <tr><td colspan="7" class="vazio">Carregando...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<dialog id="modal-whats">
+  <div class="modal-cabecalho">
+    <h3>Enviar por WhatsApp</h3>
+    <button type="button" class="fechar-modal" onclick="modalWhats.close()">×</button>
+  </div>
+  <div class="modal-corpo">
+    <p class="texto-muted">
+      O WhatsApp abrirá com a mensagem abaixo já preenchida.
+      Anexe o PDF da nota (baixe pelo botão PDF) antes de enviar.
+    </p>
+    <textarea id="whats-mensagem" rows="6" readonly></textarea>
+  </div>
+  <div class="modal-rodape">
+    <button class="btn secundario" onclick="copiarMensagem()">Copiar mensagem</button>
+    <a class="btn" id="whats-abrir" href="#" target="_blank" rel="noopener">Abrir WhatsApp</a>
+  </div>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const modalWhats = document.getElementById("modal-whats");
+
+async function carregar() {
+  const status = document.getElementById("filtro-status").value;
+  const notas = await api(`/api/notas?status=${status}`);
+  const corpo = document.getElementById("tabela");
+  if (!notas.length) {
+    corpo.innerHTML = '<tr><td colspan="7" class="vazio">Nenhuma nota encontrada.</td></tr>';
+    return;
+  }
+  corpo.innerHTML = notas.map((n) => {
+    const acoes = [];
+    if (n.status === "AUTORIZADA") {
+      acoes.push(`<a class="btn mini secundario" href="/api/notas/${n.id}/danfe" target="_blank">PDF</a>`);
+      acoes.push(`<a class="btn mini secundario" href="/api/notas/${n.id}/xml" target="_blank">XML</a>`);
+      acoes.push(`<button class="btn mini secundario" onclick="enviarEmail(${n.id})">E-mail</button>`);
+      acoes.push(`<button class="btn mini secundario" onclick="abrirWhats(${n.id})">WhatsApp</button>`);
+    }
+    if (n.status === "RASCUNHO" || n.status === "REJEITADA") {
+      acoes.push(`<button class="btn mini" onclick="emitir(${n.id})">Emitir</button>`);
+      acoes.push(`<button class="btn mini perigo" onclick="excluir(${n.id})">Excluir</button>`);
+    }
+    const alerta = n.status === "REJEITADA" && n.motivo_rejeicao
+      ? `<div class="texto-muted">${escapeHtml(n.motivo_rejeicao)}</div>` : "";
+    return `
+    <tr>
+      <td>${String(n.numero).padStart(6, "0")}</td>
+      <td>${escapeHtml(n.cliente ? n.cliente.nome : "")}</td>
+      <td>${dinheiro(n.total)}</td>
+      <td><span class="badge ${n.status}">${n.status}</span>${alerta}</td>
+      <td>${dataHora(n.criado_em)}</td>
+      <td>${n.email_enviado_em ? "Enviado " + dataHora(n.email_enviado_em) : "-"}</td>
+      <td class="acoes">${acoes.join(" ")}</td>
+    </tr>`;
+  }).join("");
+}
+
+async function emitir(id) {
+  try {
+    await api(`/api/notas/${id}/emitir`, { method: "POST" });
+    toast("Nota adicionada à fila de emissão.", "ok");
+    carregar();
+  } catch (erro) {
+    toast(erro.message, "erro");
+  }
+}
+
+async function excluir(id) {
+  if (!confirm("Excluir esta nota?")) return;
+  try {
+    await api(`/api/notas/${id}`, { method: "DELETE" });
+    toast("Nota excluída.", "ok");
+    carregar();
+  } catch (erro) {
+    toast(erro.message, "erro");
+  }
+}
+
+async function processarFila() {
+  try {
+    const r = await api("/api/notas/processar-fila", { method: "POST" });
+    if (!r.online) {
+      toast("Sem conexão com a internet. As notas seguem na fila.", "erro");
+    } else {
+      toast(`Fila processada (${r.processadas} nota(s)).`, "ok");
+    }
+    carregar();
+  } catch (erro) {
+    toast(erro.message, "erro");
+  }
+}
+
+async function enviarEmail(id) {
+  try {
+    await api(`/api/notas/${id}/enviar-email`, { method: "POST" });
+    toast("E-mail enviado.", "ok");
+    carregar();
+  } catch (erro) {
+    toast(erro.message, "erro");
+  }
+}
+
+async function abrirWhats(id) {
+  try {
+    const dados = await api(`/api/notas/${id}/whatsapp`);
+    document.getElementById("whats-mensagem").value = dados.mensagem;
+    const botao = document.getElementById("whats-abrir");
+    if (dados.link) {
+      botao.href = dados.link;
+      botao.style.display = "";
+    } else {
+      botao.style.display = "none";
+      toast("Cliente sem WhatsApp cadastrado — copie a mensagem manualmente.", "erro");
+    }
+    modalWhats.showModal();
+  } catch (erro) {
+    toast(erro.message, "erro");
+  }
+}
+
+function copiarMensagem() {
+  navigator.clipboard.writeText(document.getElementById("whats-mensagem").value);
+  toast("Mensagem copiada.", "ok");
+}
+
+document.getElementById("filtro-status").addEventListener("change", carregar);
+carregar();
+setInterval(carregar, 10000);
+</script>
+{% endblock %}

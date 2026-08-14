@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block acoes %}
+<a class="btn" href="/notas/nova">+ Nova nota</a>
+{% endblock %}
+
+{% block conteudo %}
+<div id="aviso-emitente" class="aviso" style="display:none">
+  Antes de emitir notas, preencha os dados do emitente em
+  <a href="/configuracoes">Configurações</a>.
+</div>
+
+<div class="cards">
+  <div class="card destaque"><div class="valor" id="c-autorizadas">-</div><div class="rotulo">Notas autorizadas</div></div>
+  <div class="card alerta"><div class="valor" id="c-pendentes">-</div><div class="rotulo">Na fila (aguardando)</div></div>
+  <div class="card"><div class="valor" id="c-clientes">-</div><div class="rotulo">Clientes</div></div>
+  <div class="card"><div class="valor" id="c-produtos">-</div><div class="rotulo">Produtos ativos</div></div>
+</div>
+
+<div class="painel">
+  <h2>Últimas notas</h2>
+  <table>
+    <thead>
+      <tr><th>Nº</th><th>Cliente</th><th>Valor</th><th>Status</th><th>Criada em</th></tr>
+    </thead>
+    <tbody id="tabela-recentes">
+      <tr><td colspan="5" class="vazio">Carregando...</td></tr>
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("status", (ev) => {
+  const s = ev.detail;
+  document.getElementById("c-autorizadas").textContent = s.notas.autorizada || 0;
+  document.getElementById("c-pendentes").textContent =
+    (s.notas.pendente || 0) + (s.notas.processando || 0);
+  document.getElementById("c-clientes").textContent = s.clientes;
+  document.getElementById("c-produtos").textContent = s.produtos;
+});
+
+async function carregarRecentes() {
+  const notas = await api("/api/notas");
+  const corpo = document.getElementById("tabela-recentes");
+  if (!notas.length) {
+    corpo.innerHTML = '<tr><td colspan="5" class="vazio">Nenhuma nota emitida ainda. Comece criando uma!</td></tr>';
+    return;
+  }
+  corpo.innerHTML = notas.slice(0, 8).map((n) => `
+    <tr>
+      <td>${String(n.numero).padStart(6, "0")}</td>
+      <td>${escapeHtml(n.cliente ? n.cliente.nome : "")}</td>
+      <td>${dinheiro(n.total)}</td>
+      <td><span class="badge ${n.status}">${n.status}</span></td>
+      <td>${dataHora(n.criado_em)}</td>
+    </tr>`).join("");
+}
+
+async function verificarEmitente() {
+  const cfg = await api("/api/configuracoes");
+  if (!cfg.emitente_razao_social || !cfg.emitente_cnpj) {
+    document.getElementById("aviso-emitente").style.display = "block";
+  }
+}
+
+carregarRecentes();
+verificarEmitente();
+setInterval(carregarRecentes, 10000);
+</script>
+{% endblock %}

@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% block acoes %}
+<button class="btn" onclick="abrirModal()">+ Novo cliente</button>
+{% endblock %}
+
+{% block conteudo %}
+<div class="barra-acoes">
+  <input type="search" id="busca" placeholder="Buscar por nome ou CPF/CNPJ...">
+</div>
+
+<div class="painel">
+  <table>
+    <thead>
+      <tr><th>Nome</th><th>CPF/CNPJ</th><th>E-mail</th><th>WhatsApp</th><th>Cidade/UF</th><th></th></tr>
+    </thead>
+    <tbody id="tabela">
+      <tr><td colspan="6" class="vazio">Carregando...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<dialog id="modal">
+  <form id="form" method="dialog">
+    <div class="modal-cabecalho">
+      <h3 id="modal-titulo">Novo cliente</h3>
+      <button type="button" class="fechar-modal" onclick="modal.close()">×</button>
+    </div>
+    <div class="modal-corpo form-grid">
+      <div class="c3">
+        <label>Tipo</label>
+        <select name="tipo">
+          <option value="PF">Pessoa Física</option>
+          <option value="PJ">Pessoa Jurídica</option>
+        </select>
+      </div>
+      <div class="c9" style="grid-column: span 9">
+        <label>Nome / Razão social *</label>
+        <input name="nome" required>
+      </div>
+      <div><label>CPF/CNPJ</label><input name="cpf_cnpj" placeholder="Somente números"></div>
+      <div><label>Inscrição Estadual</label><input name="ie"></div>
+      <div><label>E-mail (para envio da nota)</label><input name="email" type="email"></div>
+      <div><label>WhatsApp (DDD + número)</label><input name="whatsapp" placeholder="11999998888"></div>
+      <div class="c8"><label>Logradouro</label><input name="logradouro"></div>
+      <div class="c4"><label>Número</label><input name="numero"></div>
+      <div class="c4"><label>Complemento</label><input name="complemento"></div>
+      <div class="c4"><label>Bairro</label><input name="bairro"></div>
+      <div class="c4"><label>CEP</label><input name="cep"></div>
+      <div class="c8"><label>Município</label><input name="municipio"></div>
+      <div class="c4"><label>UF</label><input name="uf" maxlength="2" placeholder="SP"></div>
+    </div>
+    <div class="modal-rodape">
+      <button type="button" class="btn secundario" onclick="modal.close()">Cancelar</button>
+      <button type="submit" class="btn">Salvar</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const modal = document.getElementById("modal");
+const form = document.getElementById("form");
+let editandoId = null;
+let clientes = [];
+
+async function carregar() {
+  const busca = document.getElementById("busca").value;
+  clientes = await api(`/api/clientes?busca=${encodeURIComponent(busca)}`);
+  const corpo = document.getElementById("tabela");
+  if (!clientes.length) {
+    corpo.innerHTML = '<tr><td colspan="6" class="vazio">Nenhum cliente cadastrado.</td></tr>';
+    return;
+  }
+  corpo.innerHTML = clientes.map((c) => `
+    <tr>
+      <td><strong>${escapeHtml(c.nome)}</strong></td>
+      <td>${escapeHtml(c.cpf_cnpj) || "-"}</td>
+      <td>${escapeHtml(c.email) || "-"}</td>
+      <td>${escapeHtml(c.whatsapp) || "-"}</td>
+      <td>${escapeHtml(c.municipio ? `${c.municipio}/${c.uf}` : "-")}</td>
+      <td class="acoes">
+        <button class="btn mini secundario" onclick="editar(${c.id})">Editar</button>
+        <button class="btn mini perigo" onclick="excluir(${c.id})">Excluir</button>
+      </td>
+    </tr>`).join("");
+}
+
+function abrirModal(cliente = null) {
+  editandoId = cliente ? cliente.id : null;
+  document.getElementById("modal-titulo").textContent =
+    cliente ? "Editar cliente" : "Novo cliente";
+  form.reset();
+  if (cliente) {
+    for (const [campo, valor] of Object.entries(cliente)) {
+      if (form.elements[campo]) form.elements[campo].value = valor;
+    }
+  }
+  modal.showModal();
+}
+
+function editar(id) {
+  abrirModal(clientes.find((c) => c.id === id));
+}
+
+async function excluir(id) {
+  if (!confirm("Excluir este cliente?")) return;
+  try {
+    await api(`/api/clientes/${id}`, { method: "DELETE" });
+    toast("Cliente excluído.", "ok");
+    carregar();
+  } catch (erro) {
+    toast(erro.message, "erro");
+  }
+}
+
+form.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const dados = Object.fromEntries(new FormData(form));
+  dados.uf = (dados.uf || "").toUpperCase();
+  try {
+    if (editandoId) {
+      await api(`/api/clientes/${editandoId}`, { method: "PUT", body: dados });
+    } else {
+      await api("/api/clientes", { method: "POST", body: dados });
+    }
+    toast("Cliente salvo.", "ok");
+    modal.close();
+    carregar();
+  } catch (erro) {
+    toast(erro.message, "erro");
+  }
+});
+
+document.getElementById("busca").addEventListener("input", () => carregar());
+carregar();
+</script>
+{% endblock %}
