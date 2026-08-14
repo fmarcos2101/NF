@@ -57,7 +57,9 @@ PYTHONPATH=. python3 -m pytest tests/ -q
    obrigatórios para emitir). O CNPJ/CPF é validado no cadastro. Opcionalmente
    configure SMTP, senha de acesso, impressora térmica e WhatsApp Cloud API.
 2. Cadastre **clientes** (com e-mail e WhatsApp para o despacho) e **produtos**
-   (descrição, NCM, CFOP, unidade e preço).
+   (descrição, NCM, CFOP, CSOSN, unidade e preço). Cadastre o CFOP da operação
+   habitual: na emissão o primeiro dígito se ajusta sozinho à UF do cliente
+   (5xxx venda interna, 6xxx interestadual; NFC-e é sempre interna).
 3. Em **Nova nota**, escolha o cliente, adicione os itens e clique em
    **Emitir nota**. Sem internet, a nota fica na fila e é transmitida sozinha
    quando a conexão voltar.

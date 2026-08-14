@@ -56,7 +56,30 @@ def _consumidor_avulso(db: Session) -> Cliente:
     return cliente
 
 
-def _montar_itens(db: Session, nota: Nota, itens_in) -> float:
+def _ajustar_cfop(cfop: str, uf_emitente: str, uf_destino: str, nfce: bool) -> str:
+    """Troca o primeiro dígito do CFOP entre 5 (interna) e 6 (interestadual).
+
+    O cadastro do produto guarda o CFOP da operação habitual; aqui ele é
+    adaptado ao destino real da venda. Só mexe em CFOPs de saída 5xxx/6xxx —
+    7xxx (exterior) e entradas ficam como estão. NFC-e é sempre operação
+    interna, então força 5xxx.
+    """
+    if len(cfop) != 4 or cfop[0] not in "56":
+        return cfop
+    if nfce:
+        return "5" + cfop[1:]
+    uf_emitente = (uf_emitente or "").strip().upper()
+    uf_destino = (uf_destino or "").strip().upper()
+    if not uf_emitente or not uf_destino:
+        return cfop
+    if uf_emitente == uf_destino:
+        return "5" + cfop[1:]
+    return "6" + cfop[1:]
+
+
+def _montar_itens(db: Session, nota: Nota, itens_in, uf_destino: str = "") -> float:
+    uf_emitente = cfg.obter(db, "emitente_uf") or ""
+    nfce = (nota.modelo or 55) == 65
     total = 0.0
     for item_in in itens_in:
         produto = db.get(Produto, item_in.produto_id)
@@ -71,7 +94,7 @@ def _montar_itens(db: Session, nota: Nota, itens_in) -> float:
             produto_id=produto.id,
             descricao=produto.descricao,
             ncm=produto.ncm,
-            cfop=produto.cfop,
+            cfop=_ajustar_cfop(produto.cfop, uf_emitente, uf_destino, nfce),
             csosn=produto.csosn,
             unidade=produto.unidade,
             quantidade=item_in.quantidade,
@@ -161,7 +184,7 @@ def criar(dados: NotaIn, db: Session = Depends(get_db)):
     )
     # Valida cliente e itens ANTES de reservar número, para não pular a sequência
     # quando a requisição é rejeitada.
-    total = _montar_itens(db, nota, dados.itens)
+    total = _montar_itens(db, nota, dados.itens, uf_destino=cliente.uf)
     nota.total = round(max(total - dados.desconto, 0), 2)
     if dados.emitir_agora:
         nota.numero = cfg.proximo_numero_nota(db, modelo)
@@ -212,7 +235,7 @@ def corrigir(nota_id: int, dados: NotaIn, db: Session = Depends(get_db)):
         raise HTTPException(400, str(exc)) from exc
 
     nota.itens.clear()
-    total = _montar_itens(db, nota, dados.itens)
+    total = _montar_itens(db, nota, dados.itens, uf_destino=cliente.uf)
     nota.cliente_id = cliente.id
     nota.desconto = dados.desconto
     nota.observacoes = dados.observacoes

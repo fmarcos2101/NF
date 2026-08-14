@@ -308,6 +308,48 @@ class Confiabilidade(unittest.TestCase):
         })
         self.assertEqual(r.status_code, 400)
 
+    # ---------- CFOP automático por UF ----------
+
+    def test_cfop_muda_conforme_uf_do_cliente(self):
+        # Emitente é SP (setUpClass). Produto cadastrado com CFOP interno 5102.
+        mesmo_estado = self.client.post("/api/clientes", json={
+            "nome": "Cliente Paulista", "uf": "SP",
+        }).json()
+        outro_estado = self.client.post("/api/clientes", json={
+            "nome": "Cliente Goiano", "uf": "GO",
+        }).json()
+
+        interna = self.client.post("/api/notas", json={
+            "cliente_id": mesmo_estado["id"],
+            "itens": [{"produto_id": self.produto_id, "quantidade": 1}],
+            "emitir_agora": False,
+        }).json()
+        self.assertEqual(interna["itens"][0]["cfop"], "5102")
+
+        interestadual = self.client.post("/api/notas", json={
+            "cliente_id": outro_estado["id"],
+            "itens": [{"produto_id": self.produto_id, "quantidade": 1}],
+            "emitir_agora": False,
+        }).json()
+        self.assertEqual(interestadual["itens"][0]["cfop"], "6102")
+
+        # O cadastro do produto não muda — só o snapshot do item.
+        produto = self.client.get(f"/api/produtos").json()
+        alvo = next(p for p in produto if p["id"] == self.produto_id)
+        self.assertEqual(alvo["cfop"], "5102")
+
+    def test_nfce_forca_cfop_interno(self):
+        produto = self.client.post("/api/produtos", json={
+            "descricao": "Produto interestadual", "preco": 8.0,
+            "ncm": "61091000", "cfop": "6102",
+        }).json()
+        nfce = self.client.post("/api/notas", json={
+            "modelo": 65,
+            "itens": [{"produto_id": produto["id"], "quantidade": 1}],
+            "emitir_agora": False,
+        }).json()
+        self.assertEqual(nfce["itens"][0]["cfop"], "5102")
+
     # ---------- correção de nota rejeitada ----------
 
     def test_corrigir_nota_rejeitada(self):
